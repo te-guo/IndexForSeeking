@@ -1,0 +1,1 @@
+./workload 1000000 40 100000 32 0.0 uniform uniform
