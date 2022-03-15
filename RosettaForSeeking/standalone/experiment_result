@@ -1,0 +1,41 @@
+### BEGIN EXPERIMENT ###
+
+
+### BEGIN EXPERIMENT DESCRIPTION ###
+	Filter name:	DST
+	Number of keys:	100000
+	Number of bits in a key:	64
+	Number of queries:	100000
+	Key distribution:	uniform
+	Query distribution:	uniform
+	Maximum range:	2048
+	Point-Query ratio:	0.0
+	Filter bits-per-key:	10
+	Correlation degree:	10000
+### BEGIN EXPERIMENT ###
+
+
+### BEGIN EXPERIMENT DESCRIPTION ###
+	Filter name:	SuRF
+	Number of keys:	100000
+	Number of bits in a key:	64
+	Number of queries:	100000
+	Key distribution:	uniform
+	Query distribution:	uniform
+	Maximum range:	2048
+	Point-Query ratio:	0.0
+	Filter bits-per-key:	10
+	Correlation degree:	1
+	Surf hash suffix length:	0
+	Surf real suffix length:	0
+### END EXPERIMENT DESCRIPTION ###
+
+
+	Bfs diffidence:	0
+	Dfs diffidence:	64
+	Cutoff:	
+### END EXPERIMENT DESCRIPTION ###
+
+
+### END EXPERIMENT ###
+### END EXPERIMENT ###
