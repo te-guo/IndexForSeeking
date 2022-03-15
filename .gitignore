@@ -1,9 +1,10 @@
 *.o
 *.gch
 test
+!test/
 run_workload
 run_workload_disk
-experiment_result
+experiment_results
 bloom
 experiment_results/*
 log/*
