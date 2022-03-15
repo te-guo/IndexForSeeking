@@ -1,0 +1,13 @@
+*.o
+*.gch
+test
+run_workload
+run_workload_disk
+experiment_result
+bloom
+experiment_results/*
+log/*
+*.dSYM
+.vscode
+my_data/*
+workload
