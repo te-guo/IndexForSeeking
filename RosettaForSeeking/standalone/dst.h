@@ -47,14 +47,14 @@ class Bitwise {
 
     public:
         Bitwise(const string &key): len_(8*(key.size()+1)), is_mut_(true) {
-            if (len_ == 0) { return; }
+            if (len_ == 0) return;
             data_ = new uint8_t[len_/8];
             assert(data_);
             memcpy(data_, key.c_str(), len_/8);
         }
 
         Bitwise(const uint32_t &key): len_(8*sizeof(uint32_t)), is_mut_(true) {
-            if (len_ == 0) { return; }
+            if (len_ == 0) return;
             data_ = new uint8_t[len_/8];
             assert(data_);
             uint32_t tmp = htonl(key);
@@ -62,7 +62,7 @@ class Bitwise {
         }
 
         Bitwise(const uint64_t &key): len_(8*sizeof(uint64_t)), is_mut_(true) {
-            if (len_ == 0) { return; }
+            if (len_ == 0) return;
             data_ = new uint8_t[len_/8];
             assert(data_);
             uint64_t tmp = __builtin_bswap64(key);
@@ -70,7 +70,7 @@ class Bitwise {
         }
 
         Bitwise(bool init, size_t len): len_(len), is_mut_(true) {
-            if (len_ == 0) { return; }
+            if (len_ == 0) return;
             data_ = new uint8_t[(len_+7)/8]();
             assert(data_);
             if (init == 1) {
@@ -80,7 +80,7 @@ class Bitwise {
         }
 
         Bitwise(const uint8_t *data, size_t nbytes): len_(8*nbytes), is_mut_(true) {
-            if (len_ == 0) { return; }
+            if (len_ == 0) return;
             data_ = new uint8_t[len_/8];
             assert(data_);
             memcpy(data_, data, len_/8);
@@ -96,9 +96,8 @@ class Bitwise {
                 assert(data_);
                 memcpy(data_, other.data(), len_/8);
             }
-            else {
+            else
                 data_ = other.data();
-            }
         }
 
         Bitwise(Bitwise &&other) noexcept {
@@ -108,9 +107,8 @@ class Bitwise {
                 other.is_mut_ = false;
                 is_mut_ = true;
             }
-            else {
+            else
                 is_mut_ = false;
-            }
         }
 
         // Needs to exist for some reason, but should never be called.
@@ -130,40 +128,36 @@ class Bitwise {
             else {
                 data_ = new uint8_t[(len_+7)/8]();
                 memcpy(data_, other.data(), other.size()/8);
-                if (other.size()%8 != 0) {
+                if (other.size()%8 != 0)
                     assert(false);
-                }
                 is_mut_ = true;
             }
         }
 
         ~Bitwise() {
-            if (is_mut_ and data_) {
+            if (is_mut_ and data_)
                 delete[] data_;
-            }
         }
 
         uint64_t hash(uint32_t seed, FastModulo<uint64_t> modulo) const {
             if (modulo.value() < (1ULL<<32)) {
                 uint32_t h;
-                MurmurHash3_x86_32(data(), size()/8, seed, &h);
-                if (size()%8 != 0) {
+                MurmurHash3_x86_32(data(), size() >> 3, seed, &h);
+                if (size() & 7u) {
                     uint32_t h2;
-                    uint8_t tmp = data()[size()/8];
-                    tmp >>= (8-(size()%8));
-//                    tmp &= (((1<<8)-1) ^ ((1<<(7-(size()%8)))-1));
+                    uint8_t tmp = data()[size() >> 3];
+                    tmp >>= 8 - (size() & 7u);
                     MurmurHash3_x86_32(&tmp, 1, seed, &h2);
                     h ^= h2;
                 }
                 return h % modulo;
             }
             uint64_t h[2];
-            MurmurHash3_x64_128(data(), size()/8, seed, h);
-            if (size()%8 != 0) {
+            MurmurHash3_x64_128(data(), size() >> 3, seed, h);
+            if (size() & 7u) {
                 uint64_t h2[2];
-                uint8_t tmp = data()[size()/8];
-                tmp >>= (8-(size()%8));
-//                tmp &= (((1<<8)-1) ^ ((1<<(7-(size()%8)))-1));
+                uint8_t tmp = data()[size() >> 3];
+                tmp >>= 8 - (size() & 7u);
                 MurmurHash3_x64_128(&tmp, 1, seed, h2);
                 h[0] ^= h2[0];
             }
@@ -171,34 +165,32 @@ class Bitwise {
         }
         uint64_t hash(uint32_t seed) const {
             uint64_t h[2];
-            if (size()%8 == 0)
-                MurmurHash3_x64_128(data(), size() >> 3, seed, h);
-            else{
+            if (size() & 7u){
                 uint8_t tmp[size() + 7 >> 3];
                 copy_n(data(), size() + 7 >> 3, tmp);
-                tmp[size() - 1 >> 3] >>= (8-(size()%8));
+                tmp[size() - 1 >> 3] >>= 8 - (size() & 7u);
                 MurmurHash3_x64_128(tmp, size() + 7 >> 3, seed, h);
             }
+            else
+                MurmurHash3_x64_128(data(), size() >> 3, seed, h);
             return h[0];
         }
 
         uint64_t to_uint64() const {
             if (len_<=64) {
                 uint64_t out = 0;
-                memcpy(&out, data_, (len_+7)/8);
+                memcpy(&out, data_, len_ + 7 >> 3);
                 out = __builtin_bswap64(out);
-                out >>= (64-len_);
-                out <<= (64-len_);
-                //out = __builtin_bswap64(out);
+                out >>= 64 - len_;
+                out <<= 64 - len_;
                 return out;
             }
             return 0; // TODO
         }
 
         void print() const {
-            for (size_t i=0; i<len_; ++i) {
+            for (size_t i=0; i<len_; ++i)
                 printf("%d", get(i));
-            }
         }
 
         bool get(size_t i) const {
@@ -212,28 +204,22 @@ class Bitwise {
 
         void set(size_t i, bool v) {
             assert(is_mut_);
-            if (get(i) != v) {
+            if (get(i) != v)
                 flip(i);
-            }
         }
 
         size_t lcp(const Bitwise &other) const {
             size_t out = 0;
-            while (out+64 <= other.size() && out+64 <= size() && ((uint64_t*)data_)[out/64] == ((uint64_t*)other.data())[out/64]) {
+            while (out+64 <= other.size() && out+64 <= size() && ((uint64_t*)data_)[out/64] == ((uint64_t*)other.data())[out/64])
                 out += 64;
-            }
-            while (out+32 <= other.size() && out+32 <= size() && ((uint32_t*)data_)[out/32] == ((uint32_t*)other.data())[out/32]) {
+            while (out+32 <= other.size() && out+32 <= size() && ((uint32_t*)data_)[out/32] == ((uint32_t*)other.data())[out/32])
                 out += 32;
-            }
-            while (out+16 <= other.size() && out+16 <= size() && ((uint16_t*)data_)[out/16] == ((uint16_t*)other.data())[out/16]) {
+            while (out+16 <= other.size() && out+16 <= size() && ((uint16_t*)data_)[out/16] == ((uint16_t*)other.data())[out/16])
                 out += 16;
-            }
-            while (out+8 <= other.size() && out+8 <= size() && data_[out/8] == other.data()[out/8]) {
+            while (out+8 <= other.size() && out+8 <= size() && data_[out/8] == other.data()[out/8])
                 out += 8;
-            }
-            while (out+1 <= other.size() && out+1 <= size() && get(out) == other.get(out)) {
+            while (out+1 <= other.size() && out+1 <= size() && get(out) == other.get(out))
                 out += 1;
-            }
             return out;
         }
 
