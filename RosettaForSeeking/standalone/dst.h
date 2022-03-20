@@ -1,6 +1,7 @@
 #ifndef DST_H_
 #define DST_H_
 
+#include <iostream>
 #include <vector>
 #include <memory>
 #include <cassert>
@@ -8,9 +9,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <string>
-//#include "../SuRF_standalone/SuRF/include/surf.hpp"
 #include "MurmurHash3.h"
-//#include <surf.hpp>
 
 #ifdef USE_DTL
 #include <dtl/filter/blocked_bloomfilter/blocked_bloomfilter.hpp>
@@ -170,6 +169,18 @@ class Bitwise {
             }
             return h[0] % modulo;
         }
+        uint64_t hash(uint32_t seed) const {
+            uint64_t h[2];
+            if (size()%8 == 0)
+                MurmurHash3_x64_128(data(), size() >> 3, seed, h);
+            else{
+                uint8_t tmp[size() + 7 >> 3];
+                copy_n(data(), size() + 7 >> 3, tmp);
+                tmp[size() - 1 >> 3] >>= (8-(size()%8));
+                MurmurHash3_x64_128(tmp, size() + 7 >> 3, seed, h);
+            }
+            return h[0];
+        }
 
         uint64_t to_uint64() const {
             if (len_<=64) {
@@ -297,7 +308,7 @@ template<class FilterClass, bool keep_stats=false>
 class DstFilter final: public Filter {
     private:
         size_t diffidence_, maxlen_, nkeys_, diffidence_level_;
-        vector<FilterClass> bfs_;
+        vector<FilterClass*> bfs_;
         function<vector<size_t> (vector<size_t>)> get_nbits_;
 
     public:
@@ -307,6 +318,10 @@ class DstFilter final: public Filter {
 
         DstFilter(size_t diffidence, size_t diffidence_level, function<vector<size_t> (vector<size_t>)> get_nbits): diffidence_(diffidence), maxlen_(0), nkeys_(0), diffidence_level_(diffidence_level), get_nbits_(get_nbits) {
             static_assert(is_base_of<Filter, FilterClass>::value, "DST template argument must be a filter");
+        }
+        ~DstFilter(){
+            for(auto &bf: bfs_)
+                delete bf;
         }
 
         void AddKeys(const vector<Bitwise> &keys);
@@ -323,19 +338,118 @@ class DstFilter final: public Filter {
             printf("Stats for each bf:\n");
             for (auto &bf: bfs_) {
                 printf("\t");
-                bf.printStats();
+                bf->printStats();
             }
             printf("Query distribution:\n");
             for (auto &i: qdist_) {
                 printf("\t%lu\n", i);
             }
         }
-        size_t mem() const{
-            size_t s = sizeof(*this);
-            for(auto &b: bfs_)
-                s += b.mem();
-            return s;
-        }
+        size_t mem() const;
 };
+
+
+namespace vacuum{
+
+#define memcle(a) memset(a, 0, sizeof(a))
+#define sqr(a) ((a) * (a))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define ROUNDDOWN(a, b) ((a) - ((a) % (b)))
+#define ROUNDUP(a, b) ROUNDDOWN((a) + (b - 1), b)
+
+
+template <typename fp_t, int fp_len>
+class vFilter : public Filter {
+public:
+    long long n;  // number of buckets
+    int m;        // number of slots per bucket
+    uint64_t memory_consumption;
+    virtual void init(int _n, int _m, int _max_kick_steps) = 0;
+    virtual void clear() = 0;
+    virtual bool insert(uint64_t ele) = 0;
+    virtual bool lookup(uint64_t ele) = 0;
+    virtual bool del(uint64_t ele) = 0;
+    uint64_t position_hash(uint64_t ele);  // hash to range [0, n - 1]
+    virtual double get_load_factor() { return 0; }
+    virtual double get_full_bucket_factor() { return 0; }
+    virtual void debug_test() {}
+};
+
+template <typename fp_t, int fp_len>
+class SemiSortCuckooFilter : public vFilter<fp_t, fp_len> {
+public:
+    int max_2_power;
+    int big_seg;
+    int len[4];
+    virtual void init(int _n, int _m, int _max_kick_steps);
+    void clear();
+    virtual bool insert(uint64_t ele);
+    bool lookup(uint64_t ele);
+    virtual bool del(uint64_t ele);
+    double get_load_factor();
+    double get_full_bucket_factor();
+    double get_bits_per_item();
+
+    bool debug_flag = false;
+    bool balance = true;
+    uint32_t* T;
+    static uint32_t encode_table[1 << 16];
+    static uint32_t decode_table[1 << 16];
+
+    ~SemiSortCuckooFilter() { delete T; }
+
+    int filled_cell;
+    int full_bucket;
+    int max_kick_steps;
+
+    fp_t fingerprint(uint64_t ele);  // 32-bit to 'fp_len'-bit fingerprint
+
+    // interface for semi-sorted bucket
+    void get_bucket(int pos, fp_t* store);
+    void set_bucket(int pos, fp_t* sotre);
+    void test_bucket();
+    void make_balance();
+    inline int high_bit(fp_t fp);
+    inline int low_bit(fp_t fp);
+    inline void sort_pair(fp_t& a, fp_t& b);
+
+    virtual int alternate(int pos, fp_t fp) = 0;  // get alternate position
+    virtual int insert_to_bucket(
+        fp_t* store, fp_t fp);  // insert one fingerprint to bucket [pos]
+    virtual int lookup_in_bucket(
+        int pos, fp_t fp);  // lookup one fingerprint in  bucket [pos]
+    virtual int del_in_bucket(
+        int pos, fp_t fp);  // lookup one fingerprint in  bucket [pos]
+};
+
+int upperpower2(int x);
+
+// solve equation : 1 + x(logc - logx + 1) - c = 0
+double F_d(double x, double c);
+double F(double x, double c);
+double solve_equation(double c);
+double balls_in_bins_max_load(double balls, double bins);
+
+int proper_alt_range(int M, int i, int* len);
+
+template <typename fp_t, int fp_len>
+class VacuumFilter final : public SemiSortCuckooFilter<fp_t, fp_len> {
+private:
+    virtual int alternate(int pos, fp_t fp);
+    size_t seed;
+public:
+    VacuumFilter(size_t nbits);
+    void AddKeys(const vector<Bitwise> &keys);
+    bool Query(const Bitwise &key);
+    bool insert(uint64_t ele);
+    size_t mem() const;
+
+    void printStats() const {}
+    virtual pair<uint8_t*, size_t> serialize() const {}
+    static pair<VacuumFilter*, size_t> deserialize(uint8_t* ser){}
+};
+
+}
 
 #endif

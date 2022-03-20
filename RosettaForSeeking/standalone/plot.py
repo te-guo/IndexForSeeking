@@ -72,7 +72,7 @@ subfig.tick_params(axis='both', labelsize=5)
 for i in range(n):
     x = [status['BPK'] for status in data[i]]
     y = [status['IO'] for status in data[i]]
-    subfig.plot(x, y, color = colors[i], linewidth = 0.8, linestyle='-', label=names[i])
+    subfig.plot(x, y, color = colors[i], linewidth = 0.5, linestyle='-', label=names[i])
 subfig.set_xlim(xmin=0)
 subfig.set_ylim(ymin=1)
 subfig.legend(fontsize=5)
