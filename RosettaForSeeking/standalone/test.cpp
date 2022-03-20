@@ -1,7 +1,8 @@
 #include <bits/stdc++.h>
 #include "dst.h"
 
-#define CUCKOO_FP_LEN 8
+//#define UNLAYERED
+//#define CUCKOO_FP_LEN 8
 
 FILE* file;
 vector<uint32_t> in_vec;
@@ -11,8 +12,15 @@ vector<pair<uint32_t, uint32_t>> query;
 void run(size_t diffidence, double memScale, int funcType, double funcPara){
     clock_t begin, end;
     size_t io = 0;
+#ifdef UNLAYERED
+    function<size_t (vector<size_t>)> func = [memScale](vector<size_t> distribution) -> size_t {
+        size_t mem = 0;
+        for(auto &i: distribution)
+            mem += i;
+        return ceil(mem * memScale);
+    };
+#else
     function<vector<size_t> (vector<size_t>)> func;
-
     if(funcType == 0)
         func = [memScale](vector<size_t> distribution) -> vector<size_t> {
             for(auto &i: distribution)
@@ -61,7 +69,13 @@ void run(size_t diffidence, double memScale, int funcType, double funcPara){
                 *i = ceil(*i * pow(funcPara, 1 / (distribution.end() - i)) * k);
             return distribution;
         }; // bpn = pow(para, 1 / (h + 1))
+#endif
+
+#ifdef UNLAYERED
+    UnlayeredRosetta<
+#else
     Rosetta<
+#endif
 #if CUCKOO_FP_LEN == 8
     vacuum::VacuumFilter<uint8_t, 8>
 #elif CUCKOO_FP_LEN == 16
@@ -143,11 +157,11 @@ int main() {
     test("d=3000", 1e5, 3000, 1, 2, 0, 0);
 */
 
-    test("f=const", 1e6, 100, 11, 17, 0, 0);
-    // test("f=pow_1.25", 1e7, 100, 1.5, 2, 1, 1.25);
-    // test("f=zero_7", 1e7, 100, 1.5, 5, 2, 7);
-    // test("f=rt_7", 1e7, 100, 1.5, 5, 3, 7);
-    // test("f=rt_8", 1e7, 100, 1.5, 5, 3, 8);
+    // test("f=const", 1e6, 100, 10, 17, 0, 0);
+    test("f=pow_1.25", 1e6, 100, 1.5, 5, 1, 1.25);
+    test("f=zero_7", 1e6, 100, 1.5, 5, 2, 7);
+    test("f=rt_7", 1e6, 100, 1.5, 5, 3, 7);
+    test("f=rt_8", 1e6, 100, 1.5, 5, 3, 8);
 
 /*
     test("N=1e4", 1e4, 100, 1.5, 5, 1, 1.25);

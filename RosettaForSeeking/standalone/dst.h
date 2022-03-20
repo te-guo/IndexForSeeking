@@ -175,6 +175,15 @@ class Bitwise {
                 MurmurHash3_x64_128(data(), size() >> 3, seed, h);
             return h[0];
         }
+        uint64_t hash_len(uint32_t seed) const {
+            uint64_t h[2];
+            uint8_t tmp[size() + 15 >> 3];
+            copy_n(data(), size() + 7 >> 3, tmp);
+            if(size() & 7u) tmp[size() - 1 >> 3] >>= 8 - (size() & 7u);
+            tmp[size() + 7 >> 3] = len_;
+            MurmurHash3_x64_128(tmp, size() + 15 >> 3, seed, h);
+            return h[0];
+        }
 
         uint64_t to_uint64() const {
             if (len_<=64) {
@@ -334,6 +343,48 @@ class Rosetta final: public Filter {
         size_t mem() const;
 };
 
+template<class FilterClass, bool keep_stats=false>
+class UnlayeredRosetta final: public Filter {
+    private:
+        size_t diffidence_, maxlen_, nkeys_, diffidence_level_;
+        FilterClass* bfs_;
+        function<size_t (vector<size_t>)> get_nbits_;
+
+    public:
+        size_t nqueries_ = 0;
+        size_t npositives_ = 0;
+        vector<size_t> qdist_;
+
+        UnlayeredRosetta(size_t diffidence, size_t diffidence_level, function<size_t (vector<size_t>)> get_nbits): diffidence_(diffidence), maxlen_(0), nkeys_(0), diffidence_level_(diffidence_level), get_nbits_(get_nbits) {
+            static_assert(is_base_of<Filter, FilterClass>::value, "DST template argument must be a filter");
+        }
+        ~UnlayeredRosetta(){
+            delete bfs_;
+        }
+
+        void AddKeys(const vector<Bitwise> &keys);
+        bool Doubt(Bitwise *idx, size_t &C, size_t level, size_t maxlevel);
+        Bitwise *GetFirst(const Bitwise &from, const Bitwise &to);
+        Bitwise *Seek(const Bitwise &from);
+        bool Query(const Bitwise &key);
+        bool Query(const Bitwise &from, const Bitwise &to);
+        pair<uint8_t*, size_t> serialize() const { }
+        static pair<UnlayeredRosetta*, size_t> deserialize(uint8_t* ser) { }
+        void printStats() const {
+            assert(keep_stats);
+            printf("DST total stats: #queries: %lu, #positives: %lu\n", nqueries_, npositives_);
+            printf("Stats for each bf:\n");
+            {
+                printf("\t");
+                bfs_->printStats();
+            }
+            printf("Query distribution:\n");
+            for (auto &i: qdist_) {
+                printf("\t%lu\n", i);
+            }
+        }
+        size_t mem() const;
+};
 
 namespace vacuum{
 
@@ -427,7 +478,9 @@ private:
 public:
     VacuumFilter(size_t nbits);
     void AddKeys(const vector<Bitwise> &keys);
+    void AddKeys_len(const vector<Bitwise> &keys);
     bool Query(const Bitwise &key);
+    bool Query_len(const Bitwise &key);
     bool insert(uint64_t ele);
     size_t mem() const;
 

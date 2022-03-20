@@ -400,6 +400,182 @@ size_t Rosetta<FilterClass, keep_stats>::mem() const{
 }
 
 
+template<class FilterClass, bool keep_stats>
+void UnlayeredRosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
+    nkeys_ = keys.size();
+    vector<size_t> distribution;
+    vector<vector<Bitwise>> bloom_keys;
+    maxlen_ = 0;
+    for (size_t i=0; i<nkeys_; ++i)
+        maxlen_ = max(maxlen_, keys[i].size());
+    distribution.resize(maxlen_, 0);
+    bloom_keys.resize(maxlen_);
+    for (size_t i=0; i<nkeys_; ++i) {
+        size_t lcp = i>0?keys[i-1].lcp(keys[i]):0;
+        for (size_t j=lcp; j<maxlen_; ++j)
+            ++distribution[j];
+    }
+    size_t nbits = get_nbits_(distribution);
+
+    for (size_t j=0; j<maxlen_; ++j)
+        bloom_keys[j].reserve(distribution[j]);
+    for (size_t i=0; i<nkeys_; ++i) {
+        size_t lcp = i>0?keys[i-1].lcp(keys[i]):0;
+        for (size_t j=lcp; j<maxlen_; ++j)
+            bloom_keys[j].emplace_back(Bitwise(keys[i], j+1));
+    }
+
+    if (keep_stats)
+        qdist_.resize(maxlen_, 0);
+
+    bfs_ = new FilterClass(nbits);
+    for (size_t i=0; i<maxlen_; ++i)
+        bfs_->AddKeys_len(bloom_keys[i]);
+}
+
+template<class FilterClass, bool keep_stats>
+bool UnlayeredRosetta<FilterClass, keep_stats>::Doubt(Bitwise *idx, size_t &C, size_t level, size_t maxlevel) {
+    if (level >= maxlen_)
+        return false;
+    if (not bfs_->Query_len(Bitwise(*idx, level+1)))
+        return false;
+    --C;
+    if (level == maxlevel-1 or C == 0) {
+        C = 0;
+        return true;
+    }
+    bool old = idx->get(level+1);
+    idx->set(level+1, 0);
+    if (Doubt(idx, C, level+1, maxlevel))
+        return true;
+    idx->set(level+1, 1);
+    if (Doubt(idx, C, level+1, maxlevel))
+        return true;
+    idx->set(level+1, old);
+    return false;
+}
+
+template<class FilterClass, bool keep_stats>
+Bitwise *UnlayeredRosetta<FilterClass, keep_stats>::GetFirst(const Bitwise &from, const Bitwise &to) {
+    Bitwise tfrom(from, min(from.size(), maxlen_)),
+            tto(to, min(to.size(), maxlen_));
+    size_t lcp = tfrom.lcp(tto);
+    size_t C = diffidence_;
+
+    if (!keep_stats) {
+        Bitwise *tmp = new Bitwise(tto.data(), tto.size()/8);
+        for (size_t i=0; i<lcp; ++i) {
+            if (!Doubt(tmp, C, i, i+1))
+                return tmp;
+            memcpy(tmp->data(), tto.data(), tto.size()/8);
+        }
+        delete tmp;
+    }
+
+    bool carry = false;
+    Bitwise *out;
+    if (tfrom.size() > tto.size())
+        out = new Bitwise(tfrom.data(), tfrom.size()/8);
+    else {
+        out = new Bitwise(false, tto.size());
+        memcpy(out->data(), tfrom.data(), tfrom.size()/8);
+    }
+    if (lcp == maxlen_)
+        return out;
+    for (size_t i=tfrom.size()-1; i>lcp; --i) {
+        if (carry) {
+            if (out->get(i) == 0)
+                carry = false;
+            out->flip(i);
+        }
+        if (out->get(i) == 1) {
+            if (keep_stats)
+                ++qdist_[i];
+            if (Doubt(out, C, i, min(min(maxlen_, out->size()), i+diffidence_level_)))
+                return out;
+            out->set(i, 0);
+            carry = true;
+        }
+    }
+
+    if (keep_stats and !carry and lcp < maxlen_)
+        ++qdist_[lcp];
+    if (!carry and Doubt(out, C, lcp, min(min(maxlen_, out->size()), lcp+diffidence_level_)))
+        return out;
+    out->set(lcp, 1);
+
+    for (size_t i=lcp+1; i<tto.size(); ++i)
+        if (tto.get(i) == 1) {
+            if (keep_stats)
+                ++qdist_[i];
+            if (Doubt(out, C, i, min(min(maxlen_, out->size()), i+diffidence_level_)))
+                return out;
+            out->set(i, 1);
+        }
+    return out;
+}
+
+template<class FilterClass, bool keep_stats>
+Bitwise *UnlayeredRosetta<FilterClass, keep_stats>::Seek(const Bitwise &from) {
+    Bitwise tfrom(from, min(from.size(), maxlen_));
+    size_t C = diffidence_;
+    bool carry = false;
+    Bitwise *out = new Bitwise(tfrom.data(), tfrom.size()/8);
+    for (size_t i=tfrom.size()-1; i>=0; --i) {
+        if (carry) {
+            if (out->get(i) == 0)
+                carry = false;
+            out->flip(i);
+        }
+        if (out->get(i) == 1) {
+            if (keep_stats)
+                ++qdist_[i];
+            if (Doubt(out, C, i, min(min(maxlen_, out->size()), i+diffidence_level_)))
+                return out;
+            out->set(i, 0);
+            carry = true;
+        }
+    }
+    if (!carry){
+        if (keep_stats)
+            qdist_[0] += 2;
+        if(Doubt(out, C, 0, min(min(maxlen_, out->size()), diffidence_level_)))
+            return out;
+        out->set(0, 1);
+        if(Doubt(out, C, 0, min(min(maxlen_, out->size()), diffidence_level_)))
+            return out;
+    }
+    return out;
+}
+
+template<class FilterClass, bool keep_stats>
+bool UnlayeredRosetta<FilterClass, keep_stats>::Query(const Bitwise &from, const Bitwise &to) {
+    Bitwise *qry = GetFirst(from, to);
+    size_t lcp = to.lcp(*qry);
+    delete qry;
+    if (keep_stats)
+        nqueries_ += 1;
+    if (lcp < min(to.size(), maxlen_)) {
+        if (keep_stats)
+            npositives_ += 1;
+        return true;
+    }
+    return false;
+}
+
+template<class FilterClass, bool keep_stats>
+bool UnlayeredRosetta<FilterClass, keep_stats>::Query(const Bitwise &key){
+    if (keep_stats)
+        ++qdist_[maxlen_-1];
+    return bfs_->Query_len(Bitwise(key, maxlen_));
+}
+
+template<class FilterClass, bool keep_stats>
+size_t UnlayeredRosetta<FilterClass, keep_stats>::mem() const{
+    return sizeof(*this) + bfs_->mem();
+}
+
+
 namespace vacuum{
 
 template <typename fp_t, int fp_len>
@@ -883,7 +1059,7 @@ bool VacuumFilter<fp_t, fp_len>::insert(uint64_t ele) {
 template <typename fp_t, int fp_len>
 VacuumFilter<fp_t, fp_len>::VacuumFilter(size_t nbits){
     this->init(nbits / (fp_len - 1), 4, 400);
-    mt19937 gen(1337);
+    // mt19937 gen(1337);
     seed = rand(); //gen();
 }
 template <typename fp_t, int fp_len>
@@ -893,8 +1069,18 @@ void VacuumFilter<fp_t, fp_len>::AddKeys(const vector<Bitwise> &keys){
             throw std::runtime_error("Cuckoo Insert Failed");
 }
 template <typename fp_t, int fp_len>
+void VacuumFilter<fp_t, fp_len>::AddKeys_len(const vector<Bitwise> &keys){
+    for(auto &key: keys)
+        if(!this->insert(key.hash_len(seed)))
+            throw std::runtime_error("Cuckoo Insert Failed");
+}
+template <typename fp_t, int fp_len>
 bool VacuumFilter<fp_t, fp_len>::Query(const Bitwise &key){
     return this->lookup(key.hash(seed));
+}
+template <typename fp_t, int fp_len>
+bool VacuumFilter<fp_t, fp_len>::Query_len(const Bitwise &key){
+    return this->lookup(key.hash_len(seed));
 }
 template <typename fp_t, int fp_len>
 size_t VacuumFilter<fp_t, fp_len>::mem() const{
@@ -908,6 +1094,8 @@ template class Rosetta<BloomFilter<false>, false>;
 template class Rosetta<BloomFilter<true>, true>;
 template class Rosetta<vacuum::VacuumFilter<uint16_t, 16>, false>;
 template class Rosetta<vacuum::VacuumFilter<uint8_t, 8>, false>;
+template class UnlayeredRosetta<vacuum::VacuumFilter<uint16_t, 16>, false>;
+template class UnlayeredRosetta<vacuum::VacuumFilter<uint8_t, 8>, false>;
 
 #ifdef USE_DTL
 template class Rosetta<DtlBlockedBloomFilter>;
