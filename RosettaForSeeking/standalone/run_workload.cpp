@@ -81,7 +81,7 @@ int main(int argc, char **argv) {
 
 
     if (use_DST) {
-        DstFilter<BloomFilter<true>, true> dst_stat(dfs_diff, bfs_diff, [](vector<size_t> x) -> vector<size_t> {for (size_t i=0; i<x.size(); ++i) {x[i]*=1.44;} return x;});
+        Rosetta<BloomFilter<true>, true> dst_stat(dfs_diff, bfs_diff, [](vector<size_t> x) -> vector<size_t> {for (size_t i=0; i<x.size(); ++i) {x[i]*=1.44;} return x;});
         vector<Bitwise> tmp;
         tmp.push_back(Bitwise(false, maxlen));
         dst_stat.AddKeys(tmp);
@@ -101,9 +101,9 @@ int main(int argc, char **argv) {
 
     printf("### BEGIN STATISTICS ###\n");
 
-    DstFilter<BloomFilter<>> *dst=0;
+    Rosetta<BloomFilter<>> *dst=0;
     if (use_DST) {
-        dst = new DstFilter<BloomFilter<>>(dfs_diff, bfs_diff, [bits_per_key, nkeys, qdist, cutoff](vector<size_t> x) -> vector<size_t> {return calc_dst(x, bits_per_key, qdist, cutoff);});
+        dst = new Rosetta<BloomFilter<>>(dfs_diff, bfs_diff, [bits_per_key, nkeys, qdist, cutoff](vector<size_t> x) -> vector<size_t> {return calc_dst(x, bits_per_key, qdist, cutoff);});
     }
     else {
     }

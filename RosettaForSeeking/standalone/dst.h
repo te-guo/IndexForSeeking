@@ -305,7 +305,7 @@ class DtlBlockedBloomFilter final: public Filter {
 
 
 template<class FilterClass, bool keep_stats=false>
-class DstFilter final: public Filter {
+class Rosetta final: public Filter {
     private:
         size_t diffidence_, maxlen_, nkeys_, diffidence_level_;
         vector<FilterClass*> bfs_;
@@ -316,10 +316,10 @@ class DstFilter final: public Filter {
         size_t npositives_ = 0;
         vector<size_t> qdist_;
 
-        DstFilter(size_t diffidence, size_t diffidence_level, function<vector<size_t> (vector<size_t>)> get_nbits): diffidence_(diffidence), maxlen_(0), nkeys_(0), diffidence_level_(diffidence_level), get_nbits_(get_nbits) {
+        Rosetta(size_t diffidence, size_t diffidence_level, function<vector<size_t> (vector<size_t>)> get_nbits): diffidence_(diffidence), maxlen_(0), nkeys_(0), diffidence_level_(diffidence_level), get_nbits_(get_nbits) {
             static_assert(is_base_of<Filter, FilterClass>::value, "DST template argument must be a filter");
         }
-        ~DstFilter(){
+        ~Rosetta(){
             for(auto &bf: bfs_)
                 delete bf;
         }
@@ -331,7 +331,7 @@ class DstFilter final: public Filter {
         bool Query(const Bitwise &key);
         bool Query(const Bitwise &from, const Bitwise &to);
         pair<uint8_t*, size_t> serialize() const;
-        static pair<DstFilter*, size_t> deserialize(uint8_t* ser);
+        static pair<Rosetta*, size_t> deserialize(uint8_t* ser);
         void printStats() const {
             assert(keep_stats);
             printf("DST total stats: #queries: %lu, #positives: %lu\n", nqueries_, npositives_);

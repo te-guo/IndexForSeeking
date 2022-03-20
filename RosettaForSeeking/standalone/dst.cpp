@@ -14,12 +14,11 @@ vector<size_t> calc_dst(vector<size_t> dist, double bpk, vector<size_t> qdist, s
 
     long double c=0;
     size_t mqdist = 1000000000;
-    for (size_t i=0; i<qdist.size(); ++i) {
+    for (size_t i=0; i<qdist.size(); ++i)
         if (qdist[i] > 0) {
             totbits = totbits>bloom_cost?totbits-bloom_cost:0;
             mqdist = min(mqdist, qdist[i]);
         }
-    }
 
     long double lo=1/(long double)mqdist, hi=100000, mid;
     size_t bitsused = 0;
@@ -28,7 +27,7 @@ vector<size_t> calc_dst(vector<size_t> dist, double bpk, vector<size_t> qdist, s
 
         bitsused = 0;
         bool ok = true;
-        for (size_t i=0; i<dist.size()-1-cutoff; ++i) {
+        for (size_t i=0; i<dist.size()-1-cutoff; ++i)
             if (dist[i] < (1ULL<<(i+1)) and qdist[i] > 0) {
                 long double next_fpr = 1/(mid*qdist[i+1]);
                 long double this_fpr = 1/(mid*qdist[i]);
@@ -41,14 +40,11 @@ vector<size_t> calc_dst(vector<size_t> dist, double bpk, vector<size_t> qdist, s
                     break;
                 }
             }
-        }
         bitsused += (size_t)ceil((long double)dist[dist.size()-1]*1.44*log2(mid*qdist[dist.size()-1]));
-        if (ok and bitsused <= totbits) {
+        if (ok and bitsused <= totbits)
             lo = mid;
-        }
-        else {
+        else
             hi = mid;
-        }
     }
     if (lo < 1e-12) {
         printf("Not enough memory allowance\n");
@@ -57,7 +53,7 @@ vector<size_t> calc_dst(vector<size_t> dist, double bpk, vector<size_t> qdist, s
     c = lo;
 
     bitsused = 0;
-    for (size_t i=0; i<dist.size()-1-cutoff; ++i) {
+    for (size_t i=0; i<dist.size()-1-cutoff; ++i)
         if (dist[i] < (1ULL<<(i+1)) and qdist[i] > 0 and bitsused < totbits) {
             long double next_fpr = 1/(c*qdist[i+1]);
             long double this_fpr = 1/(c*qdist[i]);
@@ -67,16 +63,12 @@ vector<size_t> calc_dst(vector<size_t> dist, double bpk, vector<size_t> qdist, s
             out[i] = min((size_t)ceil((long double)dist[i]*1.44*log2(1/bloom_fpr)), totbits-bitsused);
             bitsused += out[i];
         }
-    }
     out[dist.size()-1] = bitsused<=totbits?totbits-bitsused:0;
     bitsused += out[dist.size()-1];
     if (bitsused > totbits) {
         printf("Not enough memory allowance, bitsused: %lu, totbits: %lu\n", bitsused, totbits);
         exit(0);
     }
-//    for (size_t i=0; i<out.size(); ++i) {
-//        printf("%lu: %lu bits, %lu prefixes (%lf bits per key)\n", i, out[i], dist[i], (double)out[i]/dist[out.size()-1]);
-//    }
     return out;
 }
 
@@ -88,28 +80,20 @@ void BloomFilter<keep_stats>::AddKeys(const vector<Bitwise> &keys) {
     nhf_ = (nhf_==0?1:nhf_);
     seeds_.resize(nhf_);
     mt19937 gen(1337);
-    for (size_t i=0; i<nhf_; ++i) {
+    for (size_t i=0; i<nhf_; ++i)
         seeds_[i] = gen();
-    }
 
-    for (auto &key: keys) {
-        //printf("Insert key ");
-        //key.print();
-        //printf(" (%s)\n", key.data());
-        for (size_t i=0; i<nhf_; ++i) {
+    for (auto &key: keys)
+        for (size_t i=0; i<nhf_; ++i)
             data_.set(key.hash(seeds_[i], nmod_), 1);
-        }
-    }
 }
 
 template<bool keep_stats>
 bool BloomFilter<keep_stats>::Query(const Bitwise &key) {
     if (data_.size() == 0) return true;
     bool out=true;
-    for (size_t i=0; i<nhf_ && out; ++i) {
+    for (size_t i=0; i<nhf_ && out; ++i)
         out &= data_.get(key.hash(seeds_[i], nmod_));
-    }
-
     if (keep_stats) {
         nqueries_ += 1;
         npositives_ += out;
@@ -149,17 +133,6 @@ pair<BloomFilter<keep_stats>*, size_t> BloomFilter<keep_stats>::deserialize(uint
 
     size_t len = pos-ser + nbits/8;
     return {new BloomFilter(nbits, pos, nhf, nkeys, seeds), len};
-
-//    BloomFilter *out = new BloomFilter(nbits);
-//    out->nkeys_ = ((size_t*)pos)[0];
-//    out->nhf_ = ((size_t*)pos)[1];
-//    pos += 3*sizeof(size_t);
-//    out->seeds_.insert(out->seeds_.end(), (size_t*)pos, (size_t*)(pos+sizeof(size_t)*out->nhf_));
-//    pos += out->nhf_*sizeof(size_t);
-//    memcpy(out->data_.data(), pos, nbits/8);
-//    pos += nbits/8;
-//    size_t len = 3*sizeof(size_t)+out->seeds_.size()*sizeof(size_t) + (out->data_.size()+7)/8;
-//    return {out, len};
 }
 
 #ifdef USE_DTL
@@ -199,42 +172,34 @@ pair<uint8_t*, size_t> DtlBlockedBloomFilter::serialize() const {
 #endif
 
 template<class FilterClass, bool keep_stats>
-void DstFilter<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
+void Rosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
     nkeys_ = keys.size();
     vector<size_t> distribution;
     vector<vector<Bitwise>> bloom_keys;
     maxlen_ = 0;
-    for (size_t i=0; i<nkeys_; ++i) {
+    for (size_t i=0; i<nkeys_; ++i)
         maxlen_ = max(maxlen_, keys[i].size());
-    }
     distribution.resize(maxlen_, 0);
     bloom_keys.resize(maxlen_);
     for (size_t i=0; i<nkeys_; ++i) {
         size_t lcp = i>0?keys[i-1].lcp(keys[i]):0;
-        for (size_t j=lcp; j<maxlen_; ++j) {
+        for (size_t j=lcp; j<maxlen_; ++j)
             ++distribution[j];
-        }
     }
     vector<size_t> nbits = get_nbits_(distribution);
 
-    for (size_t j=0; j<maxlen_; ++j) {
-        if (nbits[j] > 0) {
+    for (size_t j=0; j<maxlen_; ++j)
+        if (nbits[j] > 0)
             bloom_keys[j].reserve(distribution[j]);
-        }
-    }
     for (size_t i=0; i<nkeys_; ++i) {
         size_t lcp = i>0?keys[i-1].lcp(keys[i]):0;
-        for (size_t j=lcp; j<maxlen_; ++j) {
-            if (nbits[j] > 0) {
+        for (size_t j=lcp; j<maxlen_; ++j)
+            if (nbits[j] > 0)
                 bloom_keys[j].emplace_back(Bitwise(keys[i], j+1));
-            }
-        }
     }
 
-
-    if (keep_stats) {
+    if (keep_stats)
         qdist_.resize(maxlen_, 0);
-    }
 
     bfs_.reserve(maxlen_);
     for (size_t i=0; i<maxlen_; ++i) {
@@ -244,50 +209,33 @@ void DstFilter<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
 }
 
 template<class FilterClass, bool keep_stats>
-bool DstFilter<FilterClass, keep_stats>::Doubt(Bitwise *idx, size_t &C, size_t level, size_t maxlevel) {
-//    printf("Doubt ");
-//    Bitwise(*idx, level+1).print();
-//    printf(" (%s)\n", idx->data());
-    if (level >= maxlen_) {
+bool Rosetta<FilterClass, keep_stats>::Doubt(Bitwise *idx, size_t &C, size_t level, size_t maxlevel) {
+    if (level >= maxlen_)
         return false;
-    }
-    if (not bfs_[level]->Query(Bitwise(*idx, level+1))) {
+    if (not bfs_[level]->Query(Bitwise(*idx, level+1)))
         return false;
-    }
     --C;
     if (level == maxlevel-1 or C == 0) {
         C = 0;
-//        printf("diffidence true\n");
         return true;
     }
     bool old = idx->get(level+1);
     idx->set(level+1, 0);
-    if (Doubt(idx, C, level+1, maxlevel)) {
+    if (Doubt(idx, C, level+1, maxlevel))
         return true;
-    }
     idx->set(level+1, 1);
-    if (Doubt(idx, C, level+1, maxlevel)) {
+    if (Doubt(idx, C, level+1, maxlevel))
         return true;
-    }
     idx->set(level+1, old);
     return false;
 }
 
 template<class FilterClass, bool keep_stats>
-Bitwise *DstFilter<FilterClass, keep_stats>::GetFirst(const Bitwise &from, const Bitwise &to) {
+Bitwise *Rosetta<FilterClass, keep_stats>::GetFirst(const Bitwise &from, const Bitwise &to) {
     Bitwise tfrom(from, min(from.size(), maxlen_)),
             tto(to, min(to.size(), maxlen_));
-    assert(tfrom.size() <= maxlen_);
-    assert(tto.size() <= maxlen_);
     size_t lcp = tfrom.lcp(tto);
     size_t C = diffidence_;
-//    printf("GetFirst ");
-//    tfrom.print();
-//    printf(" (%s), ", tfrom.data());
-//    tto.print();
-//    printf(" (%s)\n", tto.data());
-
-//    printf("lcp: %lu\n", lcp);
 
     if (!keep_stats) {
         Bitwise *tmp = new Bitwise(tto.data(), tto.size()/8);
@@ -359,7 +307,7 @@ Bitwise *DstFilter<FilterClass, keep_stats>::GetFirst(const Bitwise &from, const
 }
 
 template<class FilterClass, bool keep_stats>
-Bitwise *DstFilter<FilterClass, keep_stats>::Seek(const Bitwise &from) {
+Bitwise *Rosetta<FilterClass, keep_stats>::Seek(const Bitwise &from) {
     Bitwise tfrom(from, min(from.size(), maxlen_));
     size_t C = diffidence_;
     bool carry = false;
@@ -392,32 +340,29 @@ Bitwise *DstFilter<FilterClass, keep_stats>::Seek(const Bitwise &from) {
 }
 
 template<class FilterClass, bool keep_stats>
-bool DstFilter<FilterClass, keep_stats>::Query(const Bitwise &from, const Bitwise &to) {
+bool Rosetta<FilterClass, keep_stats>::Query(const Bitwise &from, const Bitwise &to) {
     Bitwise *qry = GetFirst(from, to);
     size_t lcp = to.lcp(*qry);
     delete qry;
-    if (keep_stats) {
+    if (keep_stats)
         nqueries_ += 1;
-    }
     if (lcp < min(to.size(), maxlen_)) {
-        if (keep_stats) {
+        if (keep_stats)
             npositives_ += 1;
-        }
         return true;
     }
     return false;
 }
 
 template<class FilterClass, bool keep_stats>
-bool DstFilter<FilterClass, keep_stats>::Query(const Bitwise &key){
-    if (keep_stats) {
+bool Rosetta<FilterClass, keep_stats>::Query(const Bitwise &key){
+    if (keep_stats)
         ++qdist_[maxlen_-1];
-    }
     return bfs_[maxlen_-1]->Query(Bitwise(key, maxlen_));
 }
 
 template<class FilterClass, bool keep_stats>
-pair<uint8_t*, size_t> DstFilter<FilterClass, keep_stats>::serialize() const {
+pair<uint8_t*, size_t> Rosetta<FilterClass, keep_stats>::serialize() const {
     vector<pair<uint8_t*, size_t>> serial_Bloom;
     size_t len = 4*sizeof(size_t);
     for (auto &bf: bfs_) {
@@ -425,10 +370,8 @@ pair<uint8_t*, size_t> DstFilter<FilterClass, keep_stats>::serialize() const {
         len += ser.second;
         serial_Bloom.emplace_back(ser);
     }
-
     uint8_t *out = new uint8_t[len];
     uint8_t *pos = out;
-
     memcpy(pos, &diffidence_, sizeof(size_t));
     pos += sizeof(size_t);
     memcpy(pos, &diffidence_level_, sizeof(size_t));
@@ -437,36 +380,24 @@ pair<uint8_t*, size_t> DstFilter<FilterClass, keep_stats>::serialize() const {
     pos += sizeof(size_t);
     memcpy(pos, &nkeys_, sizeof(size_t));
     pos += sizeof(size_t);
-//    memcpy(pos, fprs_.data(), fprs_.size()*sizeof(double));
-//    pos += fprs_.size()*sizeof(double);
-
     for (auto &ser: serial_Bloom) {
         memcpy(pos, ser.first, ser.second);
         delete[] ser.first;
         pos += ser.second;
     }
-//    printf("DST serialized size: %lu\n", len);
     return {out, len};
 }
-
-
 template<class FilterClass, bool keep_stats>
-pair<DstFilter<FilterClass, keep_stats>*, size_t> DstFilter<FilterClass, keep_stats>::deserialize(uint8_t* ser) {
+pair<Rosetta<FilterClass, keep_stats>*, size_t> Rosetta<FilterClass, keep_stats>::deserialize(uint8_t* ser) {
     uint8_t* pos = ser;
     size_t diffidence = ((size_t*)pos)[0];
     size_t diffidence_level = ((size_t*)pos)[1];
-
-    DstFilter<FilterClass, keep_stats>* out = new DstFilter<FilterClass, keep_stats>(diffidence, diffidence_level, [](vector<size_t> distribution) -> vector<size_t> { assert(false); return distribution;});
-
+    Rosetta<FilterClass, keep_stats>* out = new Rosetta<FilterClass, keep_stats>(diffidence, diffidence_level, [](vector<size_t> distribution) -> vector<size_t> { assert(false); return distribution;});
     out->maxlen_ = ((size_t*)pos)[2];
-    if (keep_stats) {
+    if (keep_stats)
         out->qdist_.resize(out->maxlen_, 0);
-    }
     out->nkeys_ = ((size_t*)pos)[3];
     pos += 4*sizeof(size_t);
-//    out->fprs_.insert(out->fprs_.end(), (double*)pos, (double*)pos+out->maxlen_);
-//    pos += out->maxlen_*sizeof(double);
-
     for (size_t i=0; i<out->maxlen_; ++i) {
         pair<FilterClass*,size_t> tmp = FilterClass::deserialize(pos);
         out->bfs_.emplace_back(tmp.first);
@@ -477,7 +408,7 @@ pair<DstFilter<FilterClass, keep_stats>*, size_t> DstFilter<FilterClass, keep_st
 }
 
 template<class FilterClass, bool keep_stats>
-size_t DstFilter<FilterClass, keep_stats>::mem() const{
+size_t Rosetta<FilterClass, keep_stats>::mem() const{
     size_t s = sizeof(*this);
     for(auto &b: bfs_)
         s += b->mem();
@@ -513,8 +444,7 @@ double balls_in_bins_max_load(double balls, double bins) {
 
     double c = m / (n * log(n));
     // A more accurate bound..
-    if (c < 5)
-    {
+    if (c < 5) {
         double dc = solve_equation(c);
         double ret = (dc - 1 + 2) * log(n);
         return ret;
@@ -990,11 +920,11 @@ size_t VacuumFilter<fp_t, fp_len>::mem() const{
 }
 
 
-template class DstFilter<BloomFilter<false>, false>;
-template class DstFilter<BloomFilter<true>, true>;
-template class DstFilter<vacuum::VacuumFilter<uint16_t, 16>, false>;
-template class DstFilter<vacuum::VacuumFilter<uint8_t, 8>, false>;
+template class Rosetta<BloomFilter<false>, false>;
+template class Rosetta<BloomFilter<true>, true>;
+template class Rosetta<vacuum::VacuumFilter<uint16_t, 16>, false>;
+template class Rosetta<vacuum::VacuumFilter<uint8_t, 8>, false>;
 
 #ifdef USE_DTL
-template class DstFilter<DtlBlockedBloomFilter>;
+template class Rosetta<DtlBlockedBloomFilter>;
 #endif

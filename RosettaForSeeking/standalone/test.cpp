@@ -61,7 +61,7 @@ void run(size_t diffidence, double memScale, int funcType, double funcPara){
                 *i = ceil(*i * pow(funcPara, 1 / (distribution.end() - i)) * k);
             return distribution;
         }; // bpn = pow(para, 1 / (h + 1))
-    DstFilter<
+    Rosetta<
 #if CUCKOO_FP_LEN == 8
     vacuum::VacuumFilter<uint8_t, 8>
 #elif CUCKOO_FP_LEN == 16
@@ -139,9 +139,7 @@ int main() {
 
 /*
     test("d=50", 1e5, 50, 1, 2, 0, 0);
-    test("d=100", 1e5, 100, 1, 2, 0, 0);
     test("d=300", 1e5, 300, 1, 2, 0, 0);
-    test("d=1000", 1e5, 1000, 1, 2, 0, 0);
     test("d=3000", 1e5, 3000, 1, 2, 0, 0);
 */
 
