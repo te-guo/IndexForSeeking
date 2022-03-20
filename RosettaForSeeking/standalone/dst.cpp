@@ -240,9 +240,8 @@ Bitwise *Rosetta<FilterClass, keep_stats>::GetFirst(const Bitwise &from, const B
     if (!keep_stats) {
         Bitwise *tmp = new Bitwise(tto.data(), tto.size()/8);
         for (size_t i=0; i<lcp; ++i) {
-            if (!Doubt(tmp, C, i, i+1)) {
+            if (!Doubt(tmp, C, i, i+1))
                 return tmp;
-            }
             memcpy(tmp->data(), tto.data(), tto.size()/8);
         }
         delete tmp;
@@ -250,59 +249,44 @@ Bitwise *Rosetta<FilterClass, keep_stats>::GetFirst(const Bitwise &from, const B
 
     bool carry = false;
     Bitwise *out;
-    if (tfrom.size() > tto.size()) {
+    if (tfrom.size() > tto.size())
         out = new Bitwise(tfrom.data(), tfrom.size()/8);
-    }
     else {
         out = new Bitwise(false, tto.size());
         memcpy(out->data(), tfrom.data(), tfrom.size()/8);
     }
-    if (lcp == maxlen_) {
+    if (lcp == maxlen_)
         return out;
-    }
     for (size_t i=tfrom.size()-1; i>lcp; --i) {
         if (carry) {
-            if (out->get(i) == 0) {
+            if (out->get(i) == 0)
                 carry = false;
-            }
             out->flip(i);
         }
-
         if (out->get(i) == 1) {
-            if (keep_stats) {
+            if (keep_stats)
                 ++qdist_[i];
-            }
-
-            if (Doubt(out, C, i, min(min(maxlen_, out->size()), i+diffidence_level_))) {
+            if (Doubt(out, C, i, min(min(maxlen_, out->size()), i+diffidence_level_)))
                 return out;
-            }
             out->set(i, 0);
             carry = true;
         }
     }
 
-    if (keep_stats and !carry and lcp < maxlen_) {
+    if (keep_stats and !carry and lcp < maxlen_)
         ++qdist_[lcp];
-    }
-
-    if (!carry and Doubt(out, C, lcp, min(min(maxlen_, out->size()), lcp+diffidence_level_))) {
+    if (!carry and Doubt(out, C, lcp, min(min(maxlen_, out->size()), lcp+diffidence_level_)))
         return out;
-    }
     out->set(lcp, 1);
 
-    for (size_t i=lcp+1; i<tto.size(); ++i) {
+    for (size_t i=lcp+1; i<tto.size(); ++i)
         if (tto.get(i) == 1) {
-            if (keep_stats) {
+            if (keep_stats)
                 ++qdist_[i];
-            }
-
-            if (Doubt(out, C, i, min(min(maxlen_, out->size()), i+diffidence_level_))) {
+            if (Doubt(out, C, i, min(min(maxlen_, out->size()), i+diffidence_level_)))
                 return out;
-            }
             out->set(i, 1);
         }
-    }
-//    printf("Got to the end of GetFirst\n");
     return out;
 }
 
