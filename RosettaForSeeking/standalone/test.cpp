@@ -1,7 +1,7 @@
 #include <bits/stdc++.h>
 #include "dst.h"
 
-#define USE_CUCKOO
+#define CUCKOO_FP_LEN 8
 
 FILE* file;
 vector<uint32_t> in_vec;
@@ -62,8 +62,10 @@ void run(size_t diffidence, double memScale, int funcType, double funcPara){
             return distribution;
         }; // bpn = pow(para, 1 / (h + 1))
     DstFilter<
-#ifdef USE_CUCKOO
+#if CUCKOO_FP_LEN == 8
     vacuum::VacuumFilter<uint8_t, 8>
+#elif CUCKOO_FP_LEN == 16
+    vacuum::VacuumFilter<uint16_t, 16>
 #else
     BloomFilter<>
 #endif
