@@ -1,8 +1,8 @@
 #include <bits/stdc++.h>
 #include "dst.h"
 
-//#define UNLAYERED
-//#define CUCKOO_FP_LEN 8
+#define UNLAYERED
+#define CUCKOO_FP_LEN 4
 
 FILE* file;
 vector<uint32_t> in_vec;
@@ -76,17 +76,16 @@ void run(size_t diffidence, double memScale, int funcType, double funcPara){
 #else
     Rosetta<
 #endif
-#if CUCKOO_FP_LEN == 8
-    vacuum::VacuumFilter<uint8_t, 8>
-#elif CUCKOO_FP_LEN == 16
-    vacuum::VacuumFilter<uint16_t, 16>
+#if CUCKOO_FP_LEN != 0
+    vacuum::VacuumFilter<uint32_t, CUCKOO_FP_LEN + 1>
 #else
     BloomFilter<>
 #endif
     > dst(diffidence, 32, func);
 
     begin = clock();
-    dst.AddKeys(in_bit);
+    if(!dst.AddKeys(in_bit))
+        return;
     end = clock();
     fprintf(file, "InsertTP %lf  ", (double)in_bit.size()*CLOCKS_PER_SEC/1e6/(end-begin));
 
@@ -112,6 +111,9 @@ void run(size_t diffidence, double memScale, int funcType, double funcPara){
     fprintf(file, "QueryTP %lf  ", (double)query.size()*CLOCKS_PER_SEC/1e6/(end-begin));
     fprintf(file, "IO %lf  ", (double)io/query.size());
     fprintf(file, "BPK %lf  ", (double)dst.mem() * 8 / in_vec.size());
+#ifdef UNLAYERED
+    fprintf(file, "LF %lf  ", dst.get_load_factor());
+#endif
     fprintf(file, "\n");
 }
 void test(string filename, size_t n, size_t diffidence, double scaleMin, double scaleMax, int funcType = 0, double funcPara = 0){
@@ -142,32 +144,27 @@ void test(string filename, size_t n, size_t diffidence, double scaleMin, double 
     for(double scale=scaleMin, step=0.1; scale <= scaleMax; scale += step){
         run(diffidence, scale, funcType, funcPara);
         fprintf(stderr, "%lu %lu %lf %lf\n", n, diffidence, funcPara, scale);
-        step = log(scale)/10; // set step
+        step = scale * (pow(2, 0.1) - 1); // set step
     }
     if(file != stdout)
         fclose(file);
 }
 
 int main() {
+    srand(1234);
     std::filesystem::create_directory("log");
 
-/*
-    test("d=50", 1e5, 50, 1, 2, 0, 0);
-    test("d=300", 1e5, 300, 1, 2, 0, 0);
-    test("d=3000", 1e5, 3000, 1, 2, 0, 0);
-*/
+    // test("bloom_1e6", 1e6, 100, 1.5, 6, 2, 7);
+    // test("bloom_1e7", 1e7, 100, 1.5, 6, 2, 7);
+    // test("cuckoo_4bit_1e6", 1e6, 100, 4, 20, 0, 0);
+    // test("cuckoo_8bit_1e6", 1e6, 100, 8, 20, 0, 0);
+    // test("cuckoo_16bit_1e6", 1e6, 100, 16, 20, 0, 0);
+    // test("unlayered_4bit_1e6", 1e6, 100, 4, 20, 0, 0);
+    // test("unlayered_8bit_1e6", 1e6, 100, 8, 40, 0, 0);
+    // test("unlayered_16bit_1e6", 1e6, 100, 16, 80, 0, 0);
+    test("unlayered_4bit_5e7", 5e7, 100, 4, 20, 0, 0);
+    // test("unlayered_8bit_5e7", 5e7, 100, 8, 40, 0, 0);
+    // test("unlayered_16bit_5e7", 5e7, 100, 16, 80, 0, 0);
 
-    // test("f=const", 1e6, 100, 10, 17, 0, 0);
-    test("f=pow_1.25", 1e6, 100, 1.5, 5, 1, 1.25);
-    test("f=zero_7", 1e6, 100, 1.5, 5, 2, 7);
-    test("f=rt_7", 1e6, 100, 1.5, 5, 3, 7);
-    test("f=rt_8", 1e6, 100, 1.5, 5, 3, 8);
-
-/*
-    test("N=1e4", 1e4, 100, 1.5, 5, 1, 1.25);
-    test("N=1e5", 1e5, 100, 2, 6, 1, 1.25);
-    test("N=1e6", 1e6, 100, 1.5, 6, 1, 1.25);
-    test("N=1e7", 1e7, 100, 1.3, 6, 1, 1.25);
-*/
     return 0;
 }

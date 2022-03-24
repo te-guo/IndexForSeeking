@@ -73,8 +73,8 @@ vector<size_t> calc_dst(vector<size_t> dist, double bpk, vector<size_t> qdist, s
 }
 
 template<bool keep_stats>
-void BloomFilter<keep_stats>::AddKeys(const vector<Bitwise> &keys) {
-    if (data_.size() == 0) return;
+bool BloomFilter<keep_stats>::AddKeys(const vector<Bitwise> &keys) {
+    if (data_.size() == 0) return true;
     nkeys_ = keys.size();
     nhf_ = (size_t)(round(log(2)*data_.size()/nkeys_));
     nhf_ = (nhf_==0?1:nhf_);
@@ -86,6 +86,7 @@ void BloomFilter<keep_stats>::AddKeys(const vector<Bitwise> &keys) {
     for (auto &key: keys)
         for (size_t i=0; i<nhf_; ++i)
             data_.set(key.hash(seeds_[i], nmod_), 1);
+    return true;
 }
 
 template<bool keep_stats>
@@ -136,8 +137,8 @@ pair<BloomFilter<keep_stats>*, size_t> BloomFilter<keep_stats>::deserialize(uint
 }
 
 #ifdef USE_DTL
-void DtlBlockedBloomFilter::AddKeys(const vector<Bitwise> &keys) {
-    if (data_.size() == 0) return;
+bool DtlBlockedBloomFilter::AddKeys(const vector<Bitwise> &keys) {
+    if (data_.size() == 0) return true;
     nkeys_ = keys.size();
     size_t k = data_.size()/nkeys_;
     if (k == 0) {
@@ -149,6 +150,7 @@ void DtlBlockedBloomFilter::AddKeys(const vector<Bitwise> &keys) {
     for (auto &key: keys) {
         b_->insert((uint64_t*)data_.data(), key.to_uint64());
     }
+    return true;
 }
 
 bool DtlBlockedBloomFilter::Query(const Bitwise &key) {
@@ -172,7 +174,7 @@ pair<uint8_t*, size_t> DtlBlockedBloomFilter::serialize() const {
 #endif
 
 template<class FilterClass, bool keep_stats>
-void Rosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
+bool Rosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
     nkeys_ = keys.size();
     vector<size_t> distribution;
     vector<vector<Bitwise>> bloom_keys;
@@ -204,8 +206,10 @@ void Rosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
     bfs_.reserve(maxlen_);
     for (size_t i=0; i<maxlen_; ++i) {
         bfs_.emplace_back(new FilterClass(nbits[i]));
-        bfs_[i]->AddKeys(bloom_keys[i]);
+        if(!bfs_[i]->AddKeys(bloom_keys[i]))
+            return false;
     }
+    return true;
 }
 
 template<class FilterClass, bool keep_stats>
@@ -401,7 +405,12 @@ size_t Rosetta<FilterClass, keep_stats>::mem() const{
 
 
 template<class FilterClass, bool keep_stats>
-void UnlayeredRosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
+double UnlayeredRosetta<FilterClass, keep_stats>::get_load_factor(){
+    return this->bfs_->get_load_factor();
+}
+
+template<class FilterClass, bool keep_stats>
+bool UnlayeredRosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
     nkeys_ = keys.size();
     vector<size_t> distribution;
     vector<vector<Bitwise>> bloom_keys;
@@ -430,7 +439,9 @@ void UnlayeredRosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &k
 
     bfs_ = new FilterClass(nbits);
     for (size_t i=0; i<maxlen_; ++i)
-        bfs_->AddKeys_len(bloom_keys[i]);
+        if(!bfs_->AddKeys_len(bloom_keys[i]))
+            return false;
+    return true;
 }
 
 template<class FilterClass, bool keep_stats>
@@ -628,15 +639,16 @@ int proper_alt_range(int M, int i, int* len) {
     }
     return alt_range;
 }
-template<> uint32_t SemiSortCuckooFilter<uint16_t, 16>::encode_table[1 << 16] = {};
-template<> uint32_t SemiSortCuckooFilter<uint16_t, 16>::decode_table[1 << 16] = {};
-template<> uint32_t SemiSortCuckooFilter<uint8_t, 8>::encode_table[1 << 16] = {};
-template<> uint32_t SemiSortCuckooFilter<uint8_t, 8>::decode_table[1 << 16] = {};
+template<> uint32_t SemiSortCuckooFilter<uint32_t, 17>::encode_table[1 << 16] = {};
+template<> uint32_t SemiSortCuckooFilter<uint32_t, 17>::decode_table[1 << 16] = {};
+template<> uint32_t SemiSortCuckooFilter<uint32_t, 9>::encode_table[1 << 16] = {};
+template<> uint32_t SemiSortCuckooFilter<uint32_t, 9>::decode_table[1 << 16] = {};
+template<> uint32_t SemiSortCuckooFilter<uint32_t, 5>::encode_table[1 << 16] = {};
+template<> uint32_t SemiSortCuckooFilter<uint32_t, 5>::decode_table[1 << 16] = {};
 //+++ We need to make the 'max_item' to be the number of buckets
 template <typename fp_t, int fp_len>
 void SemiSortCuckooFilter<fp_t, fp_len>::init(int max_item, int _m, int _step) {
-//    int _n = (max_item / 0.96 / 4);
-    int _n = MAX((max_item / 4), 1);
+    int _n = MAX((max_item / 0.96 / _m), 1);
 
     if (false && _n < 10000) {
         if (_n < 256)
@@ -1058,21 +1070,31 @@ bool VacuumFilter<fp_t, fp_len>::insert(uint64_t ele) {
 
 template <typename fp_t, int fp_len>
 VacuumFilter<fp_t, fp_len>::VacuumFilter(size_t nbits){
-    this->init(nbits / (fp_len - 1), 4, 400);
+    this->init(nbits / (fp_len - 1), 4, 2000);
     // mt19937 gen(1337);
     seed = rand(); //gen();
 }
 template <typename fp_t, int fp_len>
-void VacuumFilter<fp_t, fp_len>::AddKeys(const vector<Bitwise> &keys){
+bool VacuumFilter<fp_t, fp_len>::AddKeys(const vector<Bitwise> &keys){
     for(auto &key: keys)
-        if(!this->insert(key.hash(seed)))
-            throw std::runtime_error("Cuckoo Insert Failed");
+        if(!this->insert(key.hash(seed))){
+            std::cerr<<"Cuckoo Insert Failed\n";
+            std::cerr<<"- key length: "<<key.size()<<std::endl;
+            std::cerr<<"- load factor: "<<this->get_load_factor()<<std::endl;
+            return false;
+        }
+    return true;
 }
 template <typename fp_t, int fp_len>
-void VacuumFilter<fp_t, fp_len>::AddKeys_len(const vector<Bitwise> &keys){
+bool VacuumFilter<fp_t, fp_len>::AddKeys_len(const vector<Bitwise> &keys){
     for(auto &key: keys)
-        if(!this->insert(key.hash_len(seed)))
-            throw std::runtime_error("Cuckoo Insert Failed");
+        if(!this->insert(key.hash_len(seed))){
+            std::cerr<<"Cuckoo Insert Failed\n";
+            std::cerr<<"- key length: "<<key.size()<<std::endl;
+            std::cerr<<"- load factor: "<<this->get_load_factor()<<std::endl;
+            return false;
+        }
+    return true;
 }
 template <typename fp_t, int fp_len>
 bool VacuumFilter<fp_t, fp_len>::Query(const Bitwise &key){
@@ -1092,10 +1114,12 @@ size_t VacuumFilter<fp_t, fp_len>::mem() const{
 
 template class Rosetta<BloomFilter<false>, false>;
 template class Rosetta<BloomFilter<true>, true>;
-template class Rosetta<vacuum::VacuumFilter<uint16_t, 16>, false>;
-template class Rosetta<vacuum::VacuumFilter<uint8_t, 8>, false>;
-template class UnlayeredRosetta<vacuum::VacuumFilter<uint16_t, 16>, false>;
-template class UnlayeredRosetta<vacuum::VacuumFilter<uint8_t, 8>, false>;
+template class Rosetta<vacuum::VacuumFilter<uint32_t, 17>, false>;
+template class Rosetta<vacuum::VacuumFilter<uint32_t, 9>, false>;
+template class Rosetta<vacuum::VacuumFilter<uint32_t, 5>, false>;
+template class UnlayeredRosetta<vacuum::VacuumFilter<uint32_t, 17>, false>;
+template class UnlayeredRosetta<vacuum::VacuumFilter<uint32_t, 9>, false>;
+template class UnlayeredRosetta<vacuum::VacuumFilter<uint32_t, 5>, false>;
 
 #ifdef USE_DTL
 template class Rosetta<DtlBlockedBloomFilter>;

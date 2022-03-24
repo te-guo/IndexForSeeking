@@ -245,7 +245,7 @@ class Filter {
     public:
         Filter(){};
         virtual ~Filter(){};
-        virtual void AddKeys(const vector<Bitwise> &keys) = 0;
+        virtual bool AddKeys(const vector<Bitwise> &keys) = 0;
         virtual bool Query(const Bitwise &key) = 0;
         virtual pair<uint8_t*, size_t> serialize() const = 0;
         static pair<Filter*, size_t> deserialize(uint8_t* ser);
@@ -267,7 +267,7 @@ class BloomFilter final : public Filter {
         BloomFilter(size_t nbits): data_(Bitwise(false, ((nbits+7)/8)*8)), nhf_(0), nkeys_(0), nmod_(((nbits+7)/8*8)) {}
         BloomFilter(size_t nbits, uint8_t* data, size_t nhf, size_t nkeys, vector<size_t> seeds): data_(Bitwise(data, nbits/8, false)), nhf_(nhf), nkeys_(nkeys), seeds_(seeds), nmod_(nbits) {}
 
-        void AddKeys(const vector<Bitwise> &keys);
+        bool AddKeys(const vector<Bitwise> &keys);
         bool Query(const Bitwise &key);
         pair<uint8_t*, size_t> serialize() const;
         static pair<BloomFilter<keep_stats>*, size_t> deserialize(uint8_t* ser);
@@ -292,7 +292,7 @@ class DtlBlockedBloomFilter final: public Filter {
         DtlBlockedBloomFilter(size_t nbits): data_(Bitwise(false, ((nbits+7)/8)*8)) {}
         //~DtlBlockedBloomFilter() { delete b_; }
 
-        void AddKeys(const vector<Bitwise> &keys);
+        bool AddKeys(const vector<Bitwise> &keys);
         bool Query(const Bitwise &key);
         pair<uint8_t*, size_t> serialize() const;
 };
@@ -319,7 +319,7 @@ class Rosetta final: public Filter {
                 delete bf;
         }
 
-        void AddKeys(const vector<Bitwise> &keys);
+        bool AddKeys(const vector<Bitwise> &keys);
         bool Doubt(Bitwise *idx, size_t &C, size_t level, size_t maxlevel);
         Bitwise *GetFirst(const Bitwise &from, const Bitwise &to);
         Bitwise *Seek(const Bitwise &from);
@@ -362,7 +362,8 @@ class UnlayeredRosetta final: public Filter {
             delete bfs_;
         }
 
-        void AddKeys(const vector<Bitwise> &keys);
+        double get_load_factor();
+        bool AddKeys(const vector<Bitwise> &keys);
         bool Doubt(Bitwise *idx, size_t &C, size_t level, size_t maxlevel);
         Bitwise *GetFirst(const Bitwise &from, const Bitwise &to);
         Bitwise *Seek(const Bitwise &from);
@@ -477,8 +478,8 @@ private:
     size_t seed;
 public:
     VacuumFilter(size_t nbits);
-    void AddKeys(const vector<Bitwise> &keys);
-    void AddKeys_len(const vector<Bitwise> &keys);
+    bool AddKeys(const vector<Bitwise> &keys);
+    bool AddKeys_len(const vector<Bitwise> &keys);
     bool Query(const Bitwise &key);
     bool Query_len(const Bitwise &key);
     bool insert(uint64_t ele);
