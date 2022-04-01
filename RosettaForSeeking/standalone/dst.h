@@ -492,4 +492,37 @@ public:
 
 }
 
+template<class FilterClass>
+class SplittedRosetta final: public Filter {
+    private:
+        size_t maxlen_, nkeys_;
+        vector<BloomFilter<>*> bfs_;
+        vector<FilterClass*> cks_;
+        function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>)> get_nbits_;
+        function<bool (const Bitwise&)> io_sim_;
+
+    public:
+
+        SplittedRosetta(function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>)> get_nbits, function<bool (const Bitwise&)> io_sim):
+        maxlen_(0), nkeys_(0), get_nbits_(get_nbits), io_sim_(io_sim) {
+            static_assert(is_base_of<Filter, FilterClass>::value, "DST template argument must be a filter");
+        }
+        ~SplittedRosetta(){
+            for(auto &bf: bfs_)
+                delete bf;
+            for(auto &ck: cks_)
+                delete ck;
+        }
+
+        bool AddKeys(const vector<Bitwise> &keys);
+        bool Doubt(Bitwise *idx, size_t level);
+        Bitwise *GetFirst(const Bitwise &from, const Bitwise &to) {}
+        Bitwise *Seek(const Bitwise &from);
+        bool Query(const Bitwise &key) {}
+        bool Query(const Bitwise &from, const Bitwise &to) {}
+        pair<uint8_t*, size_t> serialize() const {}
+        static pair<SplittedRosetta*, size_t> deserialize(uint8_t* ser) {}
+        size_t mem() const;
+};
+
 #endif

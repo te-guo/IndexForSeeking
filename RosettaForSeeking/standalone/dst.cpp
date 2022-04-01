@@ -1112,14 +1112,109 @@ size_t VacuumFilter<fp_t, fp_len>::mem() const{
 }
 
 
+template<class FilterClass>
+bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys) {
+    nkeys_ = keys.size();
+    vector<size_t> idist, ldist;
+    vector<vector<Bitwise>> ikeys, lkeys;
+    maxlen_ = 0;
+    for (size_t i=0; i<nkeys_; ++i)
+        maxlen_ = max(maxlen_, keys[i].size());
+    idist.resize(maxlen_, 0);
+    ldist.resize(maxlen_, 0);
+    ikeys.resize(maxlen_);
+    lkeys.resize(maxlen_);
+    for (size_t i = 0, lcp = 0; i<nkeys_; ++i) {
+        size_t lcp2 = i + 1 < nkeys_ ? keys[i].lcp(keys[i + 1]) : 0;
+        for (size_t j = lcp; j < max(lcp, lcp2); ++j)
+            ++idist[j];
+        ++ldist[max(lcp, lcp2)];
+        lcp = lcp2;
+    }
+    pair<vector<size_t>, vector<size_t>> nbits = get_nbits_(idist, ldist);
+
+    for (size_t j=0; j<maxlen_; ++j){
+        if (nbits.first[j] > 0)
+            ikeys[j].reserve(nbits.first[j]);
+        if (nbits.second[j] > 0)
+            ikeys[j].reserve(nbits.second[j]);
+    }
+    for (size_t i = 0, lcp = 0; i<nkeys_; ++i) {
+        size_t lcp2 = i + 1 < nkeys_ ? keys[i].lcp(keys[i + 1]) : 0;
+        for (size_t j = lcp; j < max(lcp, lcp2); ++j)
+            ikeys[j].emplace_back(Bitwise(keys[i], j + 1));
+        lkeys[max(lcp, lcp2)].emplace_back(Bitwise(keys[i], max(lcp, lcp2) + 1));
+        lcp = lcp2;
+    }
+
+    bfs_.reserve(maxlen_);
+    cks_.reserve(maxlen_);
+    for (size_t i=0; i<maxlen_; ++i){
+        bfs_.emplace_back(new BloomFilter<>(nbits.first[i]));
+        if(!bfs_[i]->AddKeys(ikeys[i]))
+            return false;
+        cks_.emplace_back(new FilterClass(nbits.second[i]));
+        if(!cks_[i]->AddKeys(lkeys[i]))
+            return false;
+    }
+    return true;
+}
+
+template<class FilterClass>
+bool SplittedRosetta<FilterClass>::Doubt(Bitwise *idx, size_t level) {
+    if (cks_[level]->Query(Bitwise(*idx, level+1)) && this->io_sim_(Bitwise(*idx, level+1)))
+        return true;
+    if (level >= maxlen_ - 1 || !bfs_[level]->Query(Bitwise(*idx, level+1)))
+        return false;
+    idx->set(level+1, 0);
+    if (Doubt(idx, level+1))
+        return true;
+    idx->set(level+1, 1);
+    if (Doubt(idx, level+1))
+        return true;
+    return false;
+}
+
+template<class FilterClass>
+Bitwise *SplittedRosetta<FilterClass>::Seek(const Bitwise &from) {
+    Bitwise tfrom(from, maxlen_);
+    bool carry = false;
+    Bitwise *out = new Bitwise(tfrom.data(), tfrom.size()/8);
+    int i;
+    for(i = 0; i < tfrom.size(); i++)
+        if(cks_[i]->Query(Bitwise(*out, i + 1)) && io_sim_(Bitwise(*out, i + 1)))
+            return out;
+        else if(!bfs_[i]->Query(Bitwise(*out, i + 1)))
+            break;
+    for(; i >= 0; i--)
+        if(out->get(i) == 0){
+            out->set(i, 1);
+            if(Doubt(out, i))
+                return out;
+        }
+    return out;
+}
+
+template<class FilterClass>
+size_t SplittedRosetta<FilterClass>::mem() const{
+    size_t s = sizeof(*this);
+    for(auto &b: bfs_)
+        s += b->mem();
+    for(auto &c: cks_)
+        s += c->mem();
+    return s;
+}
+
+
+
 template class Rosetta<BloomFilter<false>, false>;
 template class Rosetta<BloomFilter<true>, true>;
 template class Rosetta<vacuum::VacuumFilter<uint32_t, 17>, false>;
 template class Rosetta<vacuum::VacuumFilter<uint32_t, 9>, false>;
 template class Rosetta<vacuum::VacuumFilter<uint32_t, 5>, false>;
-template class UnlayeredRosetta<vacuum::VacuumFilter<uint32_t, 17>, false>;
-template class UnlayeredRosetta<vacuum::VacuumFilter<uint32_t, 9>, false>;
-template class UnlayeredRosetta<vacuum::VacuumFilter<uint32_t, 5>, false>;
+template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 17>>;
+template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 9>>;
+template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 5>>;
 
 #ifdef USE_DTL
 template class Rosetta<DtlBlockedBloomFilter>;
