@@ -1,7 +1,7 @@
 #include <bits/stdc++.h>
 #include "dst.h"
 
-#define CUCKOO_FP_LEN 8
+#define CUCKOO_FP_LEN 4
 #define CUCKOO_MASK 0xfffffffff0000000ull
 
 FILE* file;
@@ -9,14 +9,23 @@ vector<uint64_t> in_vec;
 vector<Bitwise> in_bit;
 vector<pair<uint64_t, pair<uint64_t, int>>> query;
 
+uint64_t randu(){
+    return (uint64_t) rand() << 62 ^ (uint64_t) rand() << 31 ^ (uint64_t) rand();
+}
+
 void run(double totMem, int funcType, double funcPara){
     clock_t begin, end;
     size_t io = 0;
-    function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, uint64_t, size_t)> func = [totMem](vector<size_t> idist, vector<size_t> ldist, uint64_t ck_mask, size_t ck_max) -> pair<vector<size_t>, vector<size_t>> {
+    function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> func = [totMem](vector<size_t> idist, vector<size_t> ldist, size_t bf_max, size_t ck_max, uint64_t ck_mask) -> pair<vector<size_t>, vector<size_t>> {
         for(auto &i: ldist) i *= 3;
-        for(int i=ck_max; i<64; i++)
-            if(i >= ck_max){
-                ldist[ck_max - 1] += ldist[i];
+        for(int i=bf_max+1; i<64; i++)
+            if(i > bf_max){
+                idist[bf_max] += idist[i];
+                idist[i] = 0;
+            }
+        for(int i=ck_max+1; i<64; i++)
+            if(i > ck_max){
+                ldist[ck_max] += ldist[i];
                 ldist[i] = 0;
             }
         size_t mem = 0;
@@ -33,7 +42,7 @@ void run(double totMem, int funcType, double funcPara){
         return correct |= ans_len == str.size() && ans >> 64 - ans_len == str.to_uint64() >> 64 - ans_len;
     };
 
-    SplittedRosetta<vacuum::VacuumFilter<uint32_t, CUCKOO_FP_LEN + 1>> dst(64, func, io_sim, CUCKOO_MASK, 36);
+    SplittedRosetta<vacuum::VacuumFilter<uint32_t, CUCKOO_FP_LEN + 1>> dst(64, 35, 28, CUCKOO_MASK, func, io_sim);
 
     begin = clock();
     if(!dst.AddKeys(in_bit))
@@ -58,13 +67,9 @@ void run(double totMem, int funcType, double funcPara){
     }
     end = clock();
 
-    //dst.printStats();
     fprintf(file, "QueryTP %lf  ", (double)query.size()*CLOCKS_PER_SEC/1e6/(end-begin));
     fprintf(file, "IO %lf  ", (double)io/query.size());
     fprintf(file, "BPK %lf  ", (double)dst.mem() * 8 / in_vec.size());
-#ifdef UNLAYERED
-    fprintf(file, "LF %lf  ", dst.get_load_factor());
-#endif
     fprintf(file, "\n");
     fflush(file);
 }
@@ -78,13 +83,13 @@ void test(string filename, size_t n, double bpkMin, double bpkMax, int funcType 
     in_bit.clear();
     query.clear();
     for (size_t i=0; i<n; ++i)
-        in_vec.push_back((uint64_t) rand() << 32 ^ rand());
+        in_vec.push_back(randu());
     sort(in_vec.begin(), in_vec.end());
     in_vec.erase(unique(in_vec.begin(), in_vec.end()), in_vec.end());
     for (size_t i=0; i<in_vec.size(); ++i)
         in_bit.push_back(in_vec[i]);
     for (size_t i=0; i<q; ++i) {
-        uint64_t from = (uint64_t) rand() << 32 ^ rand();
+        uint64_t from = randu();
         auto it = lower_bound(in_vec.begin(), in_vec.end(), from) - in_vec.begin();
         if(it == in_vec.size()){
             --i;
@@ -101,10 +106,10 @@ void test(string filename, size_t n, double bpkMin, double bpkMax, int funcType 
     }
 
     fprintf(file, "Insert Throughput (M/s), Query Throughput (M/s), Expected I/O Cost, BPK\nEvaluation:\n");
-    for(double bpk=bpkMin, step=0.1; bpk <= bpkMax; bpk += step){
+    for(double bpk=bpkMin, step=1; bpk <= bpkMax + 1e-6; bpk += step){
         run(bpk * in_vec.size(), funcType, funcPara);
         fprintf(stderr, "%lu %lf %lf\n", n, funcPara, bpk);
-        step = bpk * (pow(2, 0.1) - 1); // set step
+        // step = bpk * (pow(2, 0.1) - 1); // set step
     }
     if(file != stdout)
         fclose(file);
@@ -114,7 +119,7 @@ int main() {
     srand(1234);
     std::filesystem::create_directory("log");
 
-    test("", 2e7, 30, 50, 0, 0);
+    test("", 2e7 /*1e8*/, 20, 40, 0, 0);
 
     return 0;
 }

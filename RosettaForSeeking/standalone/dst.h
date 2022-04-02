@@ -2,6 +2,7 @@
 #define DST_H_
 
 #include <iostream>
+#include <algorithm>
 #include <vector>
 #include <memory>
 #include <cassert>
@@ -142,25 +143,25 @@ class Bitwise {
         uint64_t hash(uint32_t seed, FastModulo<uint64_t> modulo) const {
             if (modulo.value() < (1ULL<<32)) {
                 uint32_t h;
-                MurmurHash3_x86_32(data(), size() >> 3, seed, &h);
-                if (size() & 7u) {
-                    uint32_t h2;
-                    uint8_t tmp = data()[size() >> 3];
-                    tmp >>= 8 - (size() & 7u);
-                    MurmurHash3_x86_32(&tmp, 1, seed, &h2);
-                    h ^= h2;
+                if (size() & 7u){
+                    uint8_t tmp[size() + 7 >> 3];
+                    copy_n(data(), size() + 7 >> 3, tmp);
+                    tmp[size() - 1 >> 3] >>= 8 - (size() & 7u);
+                    MurmurHash3_x86_32(tmp, size() + 7 >> 3, seed, &h);
                 }
+                else
+                    MurmurHash3_x86_32(data(), size() >> 3, seed, &h);
                 return h % modulo;
             }
             uint64_t h[2];
-            MurmurHash3_x64_128(data(), size() >> 3, seed, h);
-            if (size() & 7u) {
-                uint64_t h2[2];
-                uint8_t tmp = data()[size() >> 3];
-                tmp >>= 8 - (size() & 7u);
-                MurmurHash3_x64_128(&tmp, 1, seed, h2);
-                h[0] ^= h2[0];
+            if (size() & 7u){
+                uint8_t tmp[size() + 7 >> 3];
+                copy_n(data(), size() + 7 >> 3, tmp);
+                tmp[size() - 1 >> 3] >>= 8 - (size() & 7u);
+                MurmurHash3_x64_128(tmp, size() + 7 >> 3, seed, h);
             }
+            else
+                MurmurHash3_x64_128(data(), size() >> 3, seed, h);
             return h[0] % modulo;
         }
         uint64_t hash(uint32_t seed) const {
@@ -175,11 +176,29 @@ class Bitwise {
                 MurmurHash3_x64_128(data(), size() >> 3, seed, h);
             return h[0];
         }
+        uint64_t hash_len(uint32_t seed, FastModulo<uint64_t> modulo) const {
+            if (modulo.value() < (1ULL<<32)) {
+                uint32_t h;
+                uint8_t tmp[size() + 15 >> 3];
+                copy_n(data(), size() + 7 >> 3, tmp);
+                tmp[size() >> 3] >>= 8 - (size() & 7u);
+                tmp[size() + 7 >> 3] = len_;
+                MurmurHash3_x86_32(tmp, size() + 15 >> 3, seed, &h);
+                return h % modulo;
+            }
+            uint64_t h[2];
+            uint8_t tmp[size() + 15 >> 3];
+            copy_n(data(), size() + 7 >> 3, tmp);
+            tmp[size() >> 3] >>= 8 - (size() & 7u);
+            tmp[size() + 7 >> 3] = len_;
+            MurmurHash3_x64_128(tmp, size() + 15 >> 3, seed, h);
+            return h[0] % modulo;
+        }
         uint64_t hash_len(uint32_t seed) const {
             uint64_t h[2];
             uint8_t tmp[size() + 15 >> 3];
             copy_n(data(), size() + 7 >> 3, tmp);
-            if(size() & 7u) tmp[size() - 1 >> 3] >>= 8 - (size() & 7u);
+            tmp[size() >> 3] >>= 8 - (size() & 7u);
             tmp[size() + 7 >> 3] = len_;
             MurmurHash3_x64_128(tmp, size() + 15 >> 3, seed, h);
             return h[0];
@@ -265,10 +284,14 @@ class BloomFilter final : public Filter {
         size_t npositives_ = 0;
 
         BloomFilter(size_t nbits): data_(Bitwise(false, ((nbits+7)/8)*8)), nhf_(0), nkeys_(0), nmod_(((nbits+7)/8*8)) {}
+        BloomFilter(size_t nbits, size_t nkeys): data_(Bitwise(false, ((nbits+7)/8)*8)), nhf_(0), nkeys_(nkeys), nmod_(((nbits+7)/8*8)) { init(); }
         BloomFilter(size_t nbits, uint8_t* data, size_t nhf, size_t nkeys, vector<size_t> seeds): data_(Bitwise(data, nbits/8, false)), nhf_(nhf), nkeys_(nkeys), seeds_(seeds), nmod_(nbits) {}
 
+        void init();
         bool AddKeys(const vector<Bitwise> &keys);
+        bool AddKeys_len(const vector<Bitwise> &keys);
         bool Query(const Bitwise &key);
+        bool Query_len(const Bitwise &key);
         pair<uint8_t*, size_t> serialize() const;
         static pair<BloomFilter<keep_stats>*, size_t> deserialize(uint8_t* ser);
         void printStats() const {
@@ -498,15 +521,15 @@ class SplittedRosetta final: public Filter {
         size_t maxlen_, nkeys_;
         vector<BloomFilter<>*> bfs_;
         vector<FilterClass*> cks_;
-        function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, uint64_t, size_t)> get_nbits_;
+        function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> get_nbits_;
         function<bool (const Bitwise&)> io_sim_;
         uint64_t ck_mask_;
-        size_t ck_max_;
+        size_t bf_max_, ck_max_;
 
     public:
 
-        SplittedRosetta(size_t maxlen, function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, uint64_t, size_t)> get_nbits, function<bool (const Bitwise&)> io_sim, uint64_t ck_mask, size_t ck_max):
-        maxlen_(maxlen), nkeys_(0), get_nbits_(get_nbits), io_sim_(io_sim), ck_mask_(ck_mask), ck_max_(ck_max) {
+        SplittedRosetta(size_t maxlen, size_t bf_max, size_t ck_max, uint64_t ck_mask, function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> get_nbits, function<bool (const Bitwise&)> io_sim):
+        maxlen_(maxlen), nkeys_(0), bf_max_(bf_max), ck_max_(ck_max), ck_mask_(ck_mask), get_nbits_(get_nbits), io_sim_(io_sim) {
             static_assert(is_base_of<Filter, FilterClass>::value, "DST template argument must be a filter");
         }
         ~SplittedRosetta(){

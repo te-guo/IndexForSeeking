@@ -73,19 +73,38 @@ vector<size_t> calc_dst(vector<size_t> dist, double bpk, vector<size_t> qdist, s
 }
 
 template<bool keep_stats>
-bool BloomFilter<keep_stats>::AddKeys(const vector<Bitwise> &keys) {
-    if (data_.size() == 0) return true;
-    nkeys_ = keys.size();
+void BloomFilter<keep_stats>::init() {
     nhf_ = (size_t)(round(log(2)*data_.size()/nkeys_));
     nhf_ = (nhf_==0?1:nhf_);
     seeds_.resize(nhf_);
     mt19937 gen(1337);
     for (size_t i=0; i<nhf_; ++i)
         seeds_[i] = gen();
+}
 
+template<bool keep_stats>
+bool BloomFilter<keep_stats>::AddKeys(const vector<Bitwise> &keys) {
+    if (data_.size() == 0) return true;
+    if (nkeys_ == 0){
+        nkeys_ = keys.size();
+        init();
+    }
     for (auto &key: keys)
         for (size_t i=0; i<nhf_; ++i)
             data_.set(key.hash(seeds_[i], nmod_), 1);
+    return true;
+}
+
+template<bool keep_stats>
+bool BloomFilter<keep_stats>::AddKeys_len(const vector<Bitwise> &keys) {
+    if (data_.size() == 0) return true;
+    if (nkeys_ == 0){
+        nkeys_ = keys.size();
+        init();
+    }
+    for (auto &key: keys)
+        for (size_t i=0; i<nhf_; ++i)
+            data_.set(key.hash_len(seeds_[i], nmod_), 1);
     return true;
 }
 
@@ -95,6 +114,19 @@ bool BloomFilter<keep_stats>::Query(const Bitwise &key) {
     bool out=true;
     for (size_t i=0; i<nhf_ && out; ++i)
         out &= data_.get(key.hash(seeds_[i], nmod_));
+    if (keep_stats) {
+        nqueries_ += 1;
+        npositives_ += out;
+    }
+    return out;
+}
+
+template<bool keep_stats>
+bool BloomFilter<keep_stats>::Query_len(const Bitwise &key) {
+    if (data_.size() == 0) return true;
+    bool out=true;
+    for (size_t i=0; i<nhf_ && out; ++i)
+        out &= data_.get(key.hash_len(seeds_[i], nmod_));
     if (keep_stats) {
         nqueries_ += 1;
         npositives_ += out;
@@ -1131,7 +1163,7 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys) {
         ++ldist[ck_pos];
         lcp = lcp2;
     }
-    pair<vector<size_t>, vector<size_t>> nbits = get_nbits_(idist, ldist, ck_mask_, ck_max_);
+    pair<vector<size_t>, vector<size_t>> nbits = get_nbits_(idist, ldist, bf_max_, ck_max_, ck_mask_);
 
     for (size_t i=0; i<maxlen_; ++i){
         if (nbits.first[i] > 0)
@@ -1151,13 +1183,21 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys) {
     }
 
     bfs_.reserve(maxlen_);
-    for (size_t i=0; i<maxlen_; ++i){
+    for (size_t i=0; i<bf_max_; ++i){
         bfs_.emplace_back(new BloomFilter<>(nbits.first[i]));
         if(!bfs_[i]->AddKeys(ikeys[i]))
             return false;
     }
+    for (size_t i=bf_max_; i<=bf_max_; ++i){
+        bfs_.emplace_back(new BloomFilter<>(nbits.first[i], std::accumulate(idist.begin()+i, idist.end(), 0)));
+        if(!bfs_[i]->AddKeys(ikeys[i]))
+            return false;
+    }
+    for (size_t i=bf_max_+1; i<maxlen_; ++i)
+        if(!bfs_[bf_max_]->AddKeys_len(ikeys[i]))
+            return false;
     cks_.reserve(maxlen_);
-    for (size_t i=0; i<ck_max_; ++i){
+    for (size_t i=0; i<=ck_max_; ++i)
         if(ck_mask_ >> i & 1ull){
             cks_.emplace_back(new FilterClass(nbits.second[i]));
             if(!cks_[i]->AddKeys(lkeys[i]))
@@ -1165,18 +1205,17 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys) {
         }
         else
             cks_.emplace_back(nullptr);
-    }
-    for (size_t i=ck_max_; i<maxlen_; ++i)
-        if(!cks_[ck_max_-1]->AddKeys_len(lkeys[i]))
+    for (size_t i=ck_max_+1; i<maxlen_; ++i)
+        if(!cks_[ck_max_]->AddKeys_len(lkeys[i]))
             return false;
     return true;
 }
 
 template<class FilterClass>
 bool SplittedRosetta<FilterClass>::Doubt(Bitwise *idx, size_t level) {
-    if (ck_mask_ >> level & 1ull && (level < ck_max_ ? cks_[level]->Query(Bitwise(*idx, level+1)) : cks_[ck_max_-1]->Query_len(Bitwise(*idx, level + 1))) && this->io_sim_(Bitwise(*idx, level+1)))
+    if (ck_mask_ >> level & 1ull && (level <= ck_max_ ? cks_[level]->Query(Bitwise(*idx, level+1)) : cks_[ck_max_]->Query_len(Bitwise(*idx, level + 1))) && this->io_sim_(Bitwise(*idx, level+1)))
         return true;
-    if (level >= maxlen_ - 1 || !bfs_[level]->Query(Bitwise(*idx, level+1)))
+    if (level >= maxlen_ - 1 || !(level <= bf_max_ ? bfs_[level]->Query(Bitwise(*idx, level+1)) : bfs_[bf_max_]->Query_len(Bitwise(*idx, level + 1))))
         return false;
     idx->set(level+1, 0);
     if (Doubt(idx, level+1))
@@ -1194,9 +1233,9 @@ Bitwise *SplittedRosetta<FilterClass>::Seek(const Bitwise &from) {
     Bitwise *out = new Bitwise(tfrom.data(), tfrom.size()/8);
     int i;
     for(i = 0; i < tfrom.size(); i++)
-        if(ck_mask_ >> i & 1ull && (i < ck_max_ ? cks_[i]->Query(Bitwise(*out, i+1)) : cks_[ck_max_-1]->Query_len(Bitwise(*out, i + 1))) && io_sim_(Bitwise(*out, i + 1)))
+        if(ck_mask_ >> i & 1ull && (i <= ck_max_ ? cks_[i]->Query(Bitwise(*out, i+1)) : cks_[ck_max_]->Query_len(Bitwise(*out, i + 1))) && io_sim_(Bitwise(*out, i + 1)))
             return out;
-        else if(!bfs_[i]->Query(Bitwise(*out, i + 1)))
+        else if(!(i <= bf_max_ ? bfs_[i]->Query(Bitwise(*out, i+1)) : bfs_[bf_max_]->Query_len(Bitwise(*out, i + 1))))
             break;
     for(; i >= 0; i--)
         if(out->get(i) == 0){
