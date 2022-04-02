@@ -498,13 +498,15 @@ class SplittedRosetta final: public Filter {
         size_t maxlen_, nkeys_;
         vector<BloomFilter<>*> bfs_;
         vector<FilterClass*> cks_;
-        function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>)> get_nbits_;
+        function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, uint64_t, size_t)> get_nbits_;
         function<bool (const Bitwise&)> io_sim_;
+        uint64_t ck_mask_;
+        size_t ck_max_;
 
     public:
 
-        SplittedRosetta(function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>)> get_nbits, function<bool (const Bitwise&)> io_sim):
-        maxlen_(0), nkeys_(0), get_nbits_(get_nbits), io_sim_(io_sim) {
+        SplittedRosetta(size_t maxlen, function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, uint64_t, size_t)> get_nbits, function<bool (const Bitwise&)> io_sim, uint64_t ck_mask, size_t ck_max):
+        maxlen_(maxlen), nkeys_(0), get_nbits_(get_nbits), io_sim_(io_sim), ck_mask_(ck_mask), ck_max_(ck_max) {
             static_assert(is_base_of<Filter, FilterClass>::value, "DST template argument must be a filter");
         }
         ~SplittedRosetta(){

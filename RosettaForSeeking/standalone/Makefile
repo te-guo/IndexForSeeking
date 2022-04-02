@@ -15,7 +15,7 @@ endif
 DSTOPT=-Ofast
 #DSTOPT=-g
 
-all: test run_workload bloom
+all: test # run_workload bloom
 
 #surf.so: ../SuRF_standalone/SuRF/include/surf.hpp
 #	g++ -Ofast -march=native -fpic -shared -x c++ ../SuRF_standalone/SuRF/include/surf.hpp -o surf.so

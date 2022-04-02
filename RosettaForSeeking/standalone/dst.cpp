@@ -1117,52 +1117,64 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys) {
     nkeys_ = keys.size();
     vector<size_t> idist, ldist;
     vector<vector<Bitwise>> ikeys, lkeys;
-    maxlen_ = 0;
-    for (size_t i=0; i<nkeys_; ++i)
-        maxlen_ = max(maxlen_, keys[i].size());
     idist.resize(maxlen_, 0);
     ldist.resize(maxlen_, 0);
     ikeys.resize(maxlen_);
     lkeys.resize(maxlen_);
     for (size_t i = 0, lcp = 0; i<nkeys_; ++i) {
         size_t lcp2 = i + 1 < nkeys_ ? keys[i].lcp(keys[i + 1]) : 0;
-        for (size_t j = lcp; j < max(lcp, lcp2); ++j)
+        size_t ck_pos = max(lcp, lcp2);
+        while(!(ck_mask_ >> ck_pos & 1ull))
+            ck_pos++;
+        for (size_t j = lcp; j < ck_pos; ++j)
             ++idist[j];
-        ++ldist[max(lcp, lcp2)];
+        ++ldist[ck_pos];
         lcp = lcp2;
     }
-    pair<vector<size_t>, vector<size_t>> nbits = get_nbits_(idist, ldist);
+    pair<vector<size_t>, vector<size_t>> nbits = get_nbits_(idist, ldist, ck_mask_, ck_max_);
 
-    for (size_t j=0; j<maxlen_; ++j){
-        if (nbits.first[j] > 0)
-            ikeys[j].reserve(nbits.first[j]);
-        if (nbits.second[j] > 0)
-            ikeys[j].reserve(nbits.second[j]);
+    for (size_t i=0; i<maxlen_; ++i){
+        if (nbits.first[i] > 0)
+            ikeys[i].reserve(idist[i]);
+        if (nbits.second[i] > 0)
+            lkeys[i].reserve(ldist[i]);
     }
     for (size_t i = 0, lcp = 0; i<nkeys_; ++i) {
         size_t lcp2 = i + 1 < nkeys_ ? keys[i].lcp(keys[i + 1]) : 0;
-        for (size_t j = lcp; j < max(lcp, lcp2); ++j)
+        size_t ck_pos = max(lcp, lcp2);
+        while(!(ck_mask_ >> ck_pos & 1ull))
+            ck_pos++;
+        for (size_t j = lcp; j < ck_pos; ++j)
             ikeys[j].emplace_back(Bitwise(keys[i], j + 1));
-        lkeys[max(lcp, lcp2)].emplace_back(Bitwise(keys[i], max(lcp, lcp2) + 1));
+        lkeys[ck_pos].emplace_back(Bitwise(keys[i], ck_pos + 1));
         lcp = lcp2;
     }
 
     bfs_.reserve(maxlen_);
-    cks_.reserve(maxlen_);
     for (size_t i=0; i<maxlen_; ++i){
         bfs_.emplace_back(new BloomFilter<>(nbits.first[i]));
         if(!bfs_[i]->AddKeys(ikeys[i]))
             return false;
-        cks_.emplace_back(new FilterClass(nbits.second[i]));
-        if(!cks_[i]->AddKeys(lkeys[i]))
-            return false;
     }
+    cks_.reserve(maxlen_);
+    for (size_t i=0; i<ck_max_; ++i){
+        if(ck_mask_ >> i & 1ull){
+            cks_.emplace_back(new FilterClass(nbits.second[i]));
+            if(!cks_[i]->AddKeys(lkeys[i]))
+                return false;
+        }
+        else
+            cks_.emplace_back(nullptr);
+    }
+    for (size_t i=ck_max_; i<maxlen_; ++i)
+        if(!cks_[ck_max_-1]->AddKeys_len(lkeys[i]))
+            return false;
     return true;
 }
 
 template<class FilterClass>
 bool SplittedRosetta<FilterClass>::Doubt(Bitwise *idx, size_t level) {
-    if (cks_[level]->Query(Bitwise(*idx, level+1)) && this->io_sim_(Bitwise(*idx, level+1)))
+    if (ck_mask_ >> level & 1ull && (level < ck_max_ ? cks_[level]->Query(Bitwise(*idx, level+1)) : cks_[ck_max_-1]->Query_len(Bitwise(*idx, level + 1))) && this->io_sim_(Bitwise(*idx, level+1)))
         return true;
     if (level >= maxlen_ - 1 || !bfs_[level]->Query(Bitwise(*idx, level+1)))
         return false;
@@ -1182,7 +1194,7 @@ Bitwise *SplittedRosetta<FilterClass>::Seek(const Bitwise &from) {
     Bitwise *out = new Bitwise(tfrom.data(), tfrom.size()/8);
     int i;
     for(i = 0; i < tfrom.size(); i++)
-        if(cks_[i]->Query(Bitwise(*out, i + 1)) && io_sim_(Bitwise(*out, i + 1)))
+        if(ck_mask_ >> i & 1ull && (i < ck_max_ ? cks_[i]->Query(Bitwise(*out, i+1)) : cks_[ck_max_-1]->Query_len(Bitwise(*out, i + 1))) && io_sim_(Bitwise(*out, i + 1)))
             return out;
         else if(!bfs_[i]->Query(Bitwise(*out, i + 1)))
             break;
@@ -1201,7 +1213,8 @@ size_t SplittedRosetta<FilterClass>::mem() const{
     for(auto &b: bfs_)
         s += b->mem();
     for(auto &c: cks_)
-        s += c->mem();
+        if(c != nullptr)
+            s += c->mem();
     return s;
 }
 

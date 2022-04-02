@@ -2,6 +2,7 @@
 #include "dst.h"
 
 #define CUCKOO_FP_LEN 8
+#define CUCKOO_MASK 0xfffffffff0000000ull
 
 FILE* file;
 vector<uint64_t> in_vec;
@@ -11,8 +12,13 @@ vector<pair<uint64_t, pair<uint64_t, int>>> query;
 void run(double totMem, int funcType, double funcPara){
     clock_t begin, end;
     size_t io = 0;
-    function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>)> func = [totMem](vector<size_t> idist, vector<size_t> ldist) -> pair<vector<size_t>, vector<size_t>> {
-        for(auto &i: ldist) i *= 2;
+    function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, uint64_t, size_t)> func = [totMem](vector<size_t> idist, vector<size_t> ldist, uint64_t ck_mask, size_t ck_max) -> pair<vector<size_t>, vector<size_t>> {
+        for(auto &i: ldist) i *= 3;
+        for(int i=ck_max; i<64; i++)
+            if(i >= ck_max){
+                ldist[ck_max - 1] += ldist[i];
+                ldist[i] = 0;
+            }
         size_t mem = 0;
         for(auto &i: idist) mem += i;
         for(auto &i: ldist) mem += i;
@@ -27,7 +33,7 @@ void run(double totMem, int funcType, double funcPara){
         return correct |= ans_len == str.size() && ans >> 64 - ans_len == str.to_uint64() >> 64 - ans_len;
     };
 
-    SplittedRosetta<vacuum::VacuumFilter<uint32_t, CUCKOO_FP_LEN + 1>> dst(func, io_sim);
+    SplittedRosetta<vacuum::VacuumFilter<uint32_t, CUCKOO_FP_LEN + 1>> dst(64, func, io_sim, CUCKOO_MASK, 36);
 
     begin = clock();
     if(!dst.AddKeys(in_bit))
@@ -60,6 +66,7 @@ void run(double totMem, int funcType, double funcPara){
     fprintf(file, "LF %lf  ", dst.get_load_factor());
 #endif
     fprintf(file, "\n");
+    fflush(file);
 }
 void test(string filename, size_t n, double bpkMin, double bpkMax, int funcType = 0, double funcPara = 0){
     // Obtain a BPK - I/O cost image
@@ -88,6 +95,8 @@ void test(string filename, size_t n, double bpkMin, double bpkMax, int funcType 
             unique_len = max(unique_len, __builtin_clzll(in_vec[it] ^ in_vec[it-1]));
         if(it < in_vec.size() - 1)
             unique_len = max(unique_len, __builtin_clzll(in_vec[it] ^ in_vec[it+1]));
+        while(!(CUCKOO_MASK >> unique_len & 1ull))
+            unique_len++;
         query.push_back(make_pair(from, make_pair(in_vec[it], unique_len + 1)));
     }
 
@@ -105,7 +114,7 @@ int main() {
     srand(1234);
     std::filesystem::create_directory("log");
 
-    test("splitted_test", 1e8, 30, 40, 0, 0);
+    test("", 2e7, 30, 50, 0, 0);
 
     return 0;
 }
