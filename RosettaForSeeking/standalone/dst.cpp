@@ -134,39 +134,6 @@ bool BloomFilter<keep_stats>::Query_len(const Bitwise &key) {
     return out;
 }
 
-template<bool keep_stats>
-pair<uint8_t*, size_t> BloomFilter<keep_stats>::serialize() const {
-    size_t len = sizeof(size_t) + sizeof(size_t) + sizeof(size_t) + seeds_.size()*sizeof(size_t) + (data_.size()+7)/8;
-    uint8_t *out = new uint8_t[len];
-    uint8_t *pos = out;
-
-    memcpy(pos, &nkeys_, sizeof(size_t));
-    pos += sizeof(size_t);
-    memcpy(pos, &nhf_, sizeof(size_t));
-    pos += sizeof(size_t);
-    size_t tmp = data_.size();
-    memcpy(pos, &tmp, sizeof(size_t));
-    pos += sizeof(size_t);
-    memcpy(pos, seeds_.data(), seeds_.size()*sizeof(size_t));
-    pos += seeds_.size()*sizeof(size_t);
-    memcpy(pos, data_.data(), (data_.size()+7)/8);
-    return {out, len};
-}
-
-template<bool keep_stats>
-pair<BloomFilter<keep_stats>*, size_t> BloomFilter<keep_stats>::deserialize(uint8_t* ser) {
-    uint8_t *pos = ser;
-
-    size_t nkeys = ((size_t*)pos)[0];
-    size_t nhf = ((size_t*)pos)[1];
-    size_t nbits = ((size_t*)pos)[2];
-    pos += 3*sizeof(size_t);
-    vector<size_t> seeds((size_t*)pos, (size_t*)pos+nhf);
-    pos += nhf*sizeof(size_t);
-
-    size_t len = pos-ser + nbits/8;
-    return {new BloomFilter(nbits, pos, nhf, nkeys, seeds), len};
-}
 
 #ifdef USE_DTL
 bool DtlBlockedBloomFilter::AddKeys(const vector<Bitwise> &keys) {
@@ -190,19 +157,6 @@ bool DtlBlockedBloomFilter::Query(const Bitwise &key) {
     return b_->contains((uint64_t*)data_.data(), key.to_uint64());
 }
 
-pair<uint8_t*, size_t> DtlBlockedBloomFilter::serialize() const {
-    size_t len = sizeof(size_t) + sizeof(size_t) + (data_.size()+7)/8;
-    uint8_t *out = new uint8_t[len];
-    uint8_t *pos = out;
-
-    memcpy(pos, &nkeys_, sizeof(size_t));
-    pos += sizeof(size_t);
-    size_t tmp = data_.size();
-    memcpy(pos, &tmp, sizeof(size_t));
-    pos += sizeof(size_t);
-    memcpy(pos, data_.data(), (data_.size()+7)/8);
-    return {out, len};
-}
 #endif
 
 template<class FilterClass, bool keep_stats>
@@ -379,52 +333,6 @@ bool Rosetta<FilterClass, keep_stats>::Query(const Bitwise &key){
     if (keep_stats)
         ++qdist_[maxlen_-1];
     return bfs_[maxlen_-1]->Query(Bitwise(key, maxlen_));
-}
-
-template<class FilterClass, bool keep_stats>
-pair<uint8_t*, size_t> Rosetta<FilterClass, keep_stats>::serialize() const {
-    vector<pair<uint8_t*, size_t>> serial_Bloom;
-    size_t len = 4*sizeof(size_t);
-    for (auto &bf: bfs_) {
-        auto ser = bf->serialize();
-        len += ser.second;
-        serial_Bloom.emplace_back(ser);
-    }
-    uint8_t *out = new uint8_t[len];
-    uint8_t *pos = out;
-    memcpy(pos, &diffidence_, sizeof(size_t));
-    pos += sizeof(size_t);
-    memcpy(pos, &diffidence_level_, sizeof(size_t));
-    pos += sizeof(size_t);
-    memcpy(pos, &maxlen_, sizeof(size_t));
-    pos += sizeof(size_t);
-    memcpy(pos, &nkeys_, sizeof(size_t));
-    pos += sizeof(size_t);
-    for (auto &ser: serial_Bloom) {
-        memcpy(pos, ser.first, ser.second);
-        delete[] ser.first;
-        pos += ser.second;
-    }
-    return {out, len};
-}
-template<class FilterClass, bool keep_stats>
-pair<Rosetta<FilterClass, keep_stats>*, size_t> Rosetta<FilterClass, keep_stats>::deserialize(uint8_t* ser) {
-    uint8_t* pos = ser;
-    size_t diffidence = ((size_t*)pos)[0];
-    size_t diffidence_level = ((size_t*)pos)[1];
-    Rosetta<FilterClass, keep_stats>* out = new Rosetta<FilterClass, keep_stats>(diffidence, diffidence_level, [](vector<size_t> distribution) -> vector<size_t> { assert(false); return distribution;});
-    out->maxlen_ = ((size_t*)pos)[2];
-    if (keep_stats)
-        out->qdist_.resize(out->maxlen_, 0);
-    out->nkeys_ = ((size_t*)pos)[3];
-    pos += 4*sizeof(size_t);
-    for (size_t i=0; i<out->maxlen_; ++i) {
-        pair<FilterClass*,size_t> tmp = FilterClass::deserialize(pos);
-        out->bfs_.emplace_back(tmp.first);
-        delete tmp.first;
-        pos += tmp.second;
-    }
-    return {out, pos-ser};
 }
 
 template<class FilterClass, bool keep_stats>

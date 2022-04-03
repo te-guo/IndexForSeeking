@@ -292,8 +292,6 @@ class BloomFilter final : public Filter {
         bool AddKeys_len(const vector<Bitwise> &keys);
         bool Query(const Bitwise &key);
         bool Query_len(const Bitwise &key);
-        pair<uint8_t*, size_t> serialize() const;
-        static pair<BloomFilter<keep_stats>*, size_t> deserialize(uint8_t* ser);
         void printStats() const {
             assert(keep_stats);
             printf("#queries: %lu, #positives: %lu\n", nqueries_, npositives_);
@@ -317,7 +315,6 @@ class DtlBlockedBloomFilter final: public Filter {
 
         bool AddKeys(const vector<Bitwise> &keys);
         bool Query(const Bitwise &key);
-        pair<uint8_t*, size_t> serialize() const;
 };
 #endif
 
@@ -348,8 +345,6 @@ class Rosetta final: public Filter {
         Bitwise *Seek(const Bitwise &from);
         bool Query(const Bitwise &key);
         bool Query(const Bitwise &from, const Bitwise &to);
-        pair<uint8_t*, size_t> serialize() const;
-        static pair<Rosetta*, size_t> deserialize(uint8_t* ser);
         void printStats() const {
             assert(keep_stats);
             printf("DST total stats: #queries: %lu, #positives: %lu\n", nqueries_, npositives_);
@@ -392,8 +387,6 @@ class UnlayeredRosetta final: public Filter {
         Bitwise *Seek(const Bitwise &from);
         bool Query(const Bitwise &key);
         bool Query(const Bitwise &from, const Bitwise &to);
-        pair<uint8_t*, size_t> serialize() const { }
-        static pair<UnlayeredRosetta*, size_t> deserialize(uint8_t* ser) { }
         void printStats() const {
             assert(keep_stats);
             printf("DST total stats: #queries: %lu, #positives: %lu\n", nqueries_, npositives_);
@@ -509,8 +502,6 @@ public:
     size_t mem() const;
 
     void printStats() const {}
-    virtual pair<uint8_t*, size_t> serialize() const {}
-    static pair<VacuumFilter*, size_t> deserialize(uint8_t* ser){}
 };
 
 }
@@ -545,8 +536,6 @@ class SplittedRosetta final: public Filter {
         Bitwise *Seek(const Bitwise &from);
         bool Query(const Bitwise &key) {}
         bool Query(const Bitwise &from, const Bitwise &to) {}
-        pair<uint8_t*, size_t> serialize() const {}
-        static pair<SplittedRosetta*, size_t> deserialize(uint8_t* ser) {}
         size_t mem() const;
 };
 
