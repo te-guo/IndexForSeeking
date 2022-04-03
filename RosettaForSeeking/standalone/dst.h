@@ -361,48 +361,6 @@ class Rosetta final: public Filter {
         size_t mem() const;
 };
 
-template<class FilterClass, bool keep_stats=false>
-class UnlayeredRosetta final: public Filter {
-    private:
-        size_t diffidence_, maxlen_, nkeys_, diffidence_level_;
-        FilterClass* bfs_;
-        function<size_t (vector<size_t>)> get_nbits_;
-
-    public:
-        size_t nqueries_ = 0;
-        size_t npositives_ = 0;
-        vector<size_t> qdist_;
-
-        UnlayeredRosetta(size_t diffidence, size_t diffidence_level, function<size_t (vector<size_t>)> get_nbits): diffidence_(diffidence), maxlen_(0), nkeys_(0), diffidence_level_(diffidence_level), get_nbits_(get_nbits) {
-            static_assert(is_base_of<Filter, FilterClass>::value, "DST template argument must be a filter");
-        }
-        ~UnlayeredRosetta(){
-            delete bfs_;
-        }
-
-        double get_load_factor();
-        bool AddKeys(const vector<Bitwise> &keys);
-        bool Doubt(Bitwise *idx, size_t &C, size_t level, size_t maxlevel);
-        Bitwise *GetFirst(const Bitwise &from, const Bitwise &to);
-        Bitwise *Seek(const Bitwise &from);
-        bool Query(const Bitwise &key);
-        bool Query(const Bitwise &from, const Bitwise &to);
-        void printStats() const {
-            assert(keep_stats);
-            printf("DST total stats: #queries: %lu, #positives: %lu\n", nqueries_, npositives_);
-            printf("Stats for each bf:\n");
-            {
-                printf("\t");
-                bfs_->printStats();
-            }
-            printf("Query distribution:\n");
-            for (auto &i: qdist_) {
-                printf("\t%lu\n", i);
-            }
-        }
-        size_t mem() const;
-};
-
 namespace vacuum{
 
 #define memcle(a) memset(a, 0, sizeof(a))
