@@ -5,7 +5,8 @@
 #define CUCKOO_MASK 0xfffffffff0000000ull
 #define CUCKOO_MAX_LAYER 28
 #define BLOOM_MAX_LAYER 34
-#define gurobi
+#define GUROBI
+// #define UNSPLITTED
 
 FILE* file;
 vector<uint64_t> in_vec;
@@ -19,6 +20,7 @@ uint64_t randu(){
 void run(double totMem, int funcType, double funcPara){
     clock_t begin, end;
     size_t io = 0;
+#ifndef UNSPLITTED
     function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> func = [totMem](vector<size_t> idist, vector<size_t> ldist, size_t bf_max, size_t ck_max, uint64_t ck_mask) -> pair<vector<size_t>, vector<size_t>> {
         for(auto &i: ldist) i *= 3;
         for(int i=bf_max+1; i<64; i++)
@@ -38,7 +40,7 @@ void run(double totMem, int funcType, double funcPara){
         for(auto &i: ldist) i = ceil(i * totMem / mem);
         return make_pair(idist, ldist);
     };
-#ifdef gurobi
+#ifdef GUROBI
     static double gurobi_a[][7]={
         {0.3551073730976299, 1.599990748245976, 0.6152689257681739, 0.6072477971431384, 0.4176961501265128, 0.42144577802115324, 0.508743676268198},
         {0.29465396937148214, 0.09208012199783208, 1.6, 0.9808025571881682, 0.1951027573978623, 0.44560027309238026, 0.322239115845548},
@@ -86,6 +88,44 @@ void run(double totMem, int funcType, double funcPara){
     };
 
     SplittedRosetta<vacuum::VacuumFilter<uint32_t, CUCKOO_FP_LEN + 1>> dst(64, BLOOM_MAX_LAYER, CUCKOO_MAX_LAYER, CUCKOO_MASK, func, io_sim);
+#else
+    function<vector<size_t> (vector<size_t>)> func;
+    if(funcType == 0)
+        func = [totMem](vector<size_t> distribution) -> vector<size_t> {
+            size_t mem = 0;
+            for(auto &i: distribution) mem += i;
+            for(auto &i: distribution) i = ceil(i * totMem / mem);
+            return distribution;
+        }; // bpn = const
+    else if(funcType==1)
+        func = [totMem, funcPara](vector<size_t> distribution) -> vector<size_t> {
+            double k = 1;
+            for(auto &i: distribution){
+                k *= funcPara;
+                i = ceil(i * k);
+            }
+            size_t mem = 0;
+            for(auto &i: distribution) mem += i;
+            for(auto &i: distribution) i = ceil(i * totMem / mem);
+            return distribution;
+        }; // bpn = pow(para, -h)
+    else if(funcType==2)
+        func = [totMem, funcPara](vector<size_t> distribution) -> vector<size_t> {
+            distribution.back() = ceil(distribution.back() * funcPara);
+            size_t mem = 0;
+            for(auto &i: distribution) mem += i;
+            for(auto &i: distribution) i = ceil(i * totMem / mem);
+            return distribution;
+        }; // bpn = h == 0 ? para : 1
+
+    Rosetta<
+#ifdef CUCKOO_FP_LEN
+    vacuum::VacuumFilter<uint32_t, CUCKOO_FP_LEN + 1>
+#else
+    BloomFilter<>
+#endif
+    > dst(500, 25, func);
+#endif
 
     begin = clock();
     if(!dst.AddKeys(in_bit))
@@ -95,6 +135,7 @@ void run(double totMem, int funcType, double funcPara){
     fprintf(file, "InsertTP %lf  ", (double)in_bit.size()*CLOCKS_PER_SEC/1e6/(end-begin));
 
     begin = clock();
+#ifndef UNSPLITTED
     for (size_t i = 0; i < query.size(); i++) {
         uint64_t from = query[i].first;
         ans = query[i].second.first;
@@ -108,6 +149,25 @@ void run(double totMem, int funcType, double funcPara){
         }
         delete res;
     }
+#else
+    for (size_t i = 0; i < query.size(); i++) {
+        uint64_t from = query[i].first, ans = query[i].second.first;
+        while(true){
+            auto out = dst.Seek(Bitwise(from));
+            uint64_t res = out->to_uint64();
+            ++io;
+            if (res == ans)
+                break;
+            else if (res < from || res > ans){
+                printf("WRONG ANSWER! query id: %lu;  from: %lu, res: %lu, ans: %lu\n", i, from, res, ans);
+                throw std::runtime_error("False Negative");
+                return;
+            }
+            from = res + 1;
+            delete out;
+        }
+    }
+#endif
     end = clock();
 
     fprintf(file, "QueryTP %lf  ", (double)query.size()*CLOCKS_PER_SEC/1e6/(end-begin));
@@ -139,12 +199,14 @@ void test(string filename, size_t n, double bpkMin, double bpkMax, int funcType 
             continue;
         }
         int unique_len = 0;
+#ifndef UNSPLITTED
         if(it > 0)
             unique_len = max(unique_len, __builtin_clzll(in_vec[it] ^ in_vec[it-1]));
         if(it < in_vec.size() - 1)
             unique_len = max(unique_len, __builtin_clzll(in_vec[it] ^ in_vec[it+1]));
         while(!(CUCKOO_MASK >> unique_len & 1ull))
             unique_len++;
+#endif
         query.push_back(make_pair(from, make_pair(in_vec[it], unique_len + 1)));
     }
 
@@ -162,7 +224,7 @@ int main() {
     srand(1234);
     std::filesystem::create_directory("log");
 
-    test("splitted_4bit_5e8", 5e8, 14, 22, 0, 0);
+    test(/*"splitted_4bit_5e8"*/"", 5e8, 14, 22, 0, 0);
 
     return 0;
 }
