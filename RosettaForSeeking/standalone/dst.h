@@ -266,8 +266,6 @@ class Filter {
         virtual ~Filter(){};
         virtual bool AddKeys(const vector<Bitwise> &keys) = 0;
         virtual bool Query(const Bitwise &key) = 0;
-        virtual pair<uint8_t*, size_t> serialize() const = 0;
-        static pair<Filter*, size_t> deserialize(uint8_t* ser);
 };
 
 template<bool keep_stats=false>
