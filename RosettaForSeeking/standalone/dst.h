@@ -361,88 +361,12 @@ class Rosetta final: public Filter {
 
 namespace vacuum{
 
-#define memcle(a) memset(a, 0, sizeof(a))
-#define sqr(a) ((a) * (a))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define ROUNDDOWN(a, b) ((a) - ((a) % (b)))
 #define ROUNDUP(a, b) ROUNDDOWN((a) + (b - 1), b)
 
-
-template <typename fp_t, int fp_len>
-class vFilter : public Filter {
-public:
-    long long n;  // number of buckets
-    int m;        // number of slots per bucket
-    uint64_t memory_consumption;
-    virtual void init(int _n, int _m, int _max_kick_steps) = 0;
-    virtual void clear() = 0;
-    virtual bool insert(uint64_t ele) = 0;
-    virtual bool lookup(uint64_t ele) = 0;
-    virtual bool del(uint64_t ele) = 0;
-    uint64_t position_hash(uint64_t ele);  // hash to range [0, n - 1]
-    virtual double get_load_factor() { return 0; }
-    virtual double get_full_bucket_factor() { return 0; }
-    virtual void debug_test() {}
-};
-
-template <typename fp_t, int fp_len>
-class SemiSortCuckooFilter : public vFilter<fp_t, fp_len> {
-public:
-    int max_2_power;
-    int big_seg;
-    int len[4];
-    virtual void init(int _n, int _m, int _max_kick_steps);
-    void clear();
-    virtual bool insert(uint64_t ele);
-    bool insert(uint64_t ele, uint16_t runid);
-    bool lookup(uint64_t ele);
-    bool lookupIO(uint64_t ele, const Bitwise &key);
-    virtual bool del(uint64_t ele);
-    double get_load_factor();
-    double get_full_bucket_factor();
-    double get_bits_per_item();
-
-    bool debug_flag = false;
-    bool balance = true;
-    uint32_t* T;
-    static uint32_t encode_table[1 << 16];
-    static uint32_t decode_table[1 << 16];
-
-    uint16_t* rid; // for simulation
-
-    ~SemiSortCuckooFilter() { delete T; delete rid; }
-
-    int filled_cell;
-    int full_bucket;
-    int max_kick_steps;
-
-    function<bool (uint16_t, const Bitwise&)>* io_sim_;
-
-    fp_t fingerprint(uint64_t ele);  // 32-bit to 'fp_len'-bit fingerprint
-
-    // interface for semi-sorted bucket
-    void get_bucket(int pos, fp_t* store);
-    void set_bucket(int pos, fp_t* sotre);
-    void test_bucket();
-    void make_balance();
-    inline int high_bit(fp_t fp);
-    inline int low_bit(fp_t fp);
-    inline void sort_pair(fp_t& a, fp_t& b);
-
-    virtual int alternate(int pos, fp_t fp) = 0;  // get alternate position
-    virtual int insert_to_bucket(
-        fp_t* store, fp_t fp);  // insert one fingerprint to bucket [pos]
-    virtual int lookup_in_bucket(
-        int pos, fp_t fp);  // lookup one fingerprint in  bucket [pos]
-    virtual int lookupIO_in_bucket(
-        int pos, fp_t fp, const Bitwise& key);
-    virtual int del_in_bucket(
-        int pos, fp_t fp);  // lookup one fingerprint in  bucket [pos]
-};
-
 int upperpower2(int x);
-
 // solve equation : 1 + x(logc - logx + 1) - c = 0
 double F_d(double x, double c);
 double F(double x, double c);
@@ -452,21 +376,68 @@ double balls_in_bins_max_load(double balls, double bins);
 int proper_alt_range(int M, int i, int* len);
 
 template <typename fp_t, int fp_len>
-class VacuumFilter final : public SemiSortCuckooFilter<fp_t, fp_len> {
+class VacuumFilter final : public Filter {
 private:
-    virtual int alternate(int pos, fp_t fp);
+    long long n;  // number of buckets
+    int m;        // number of slots per bucket
+    uint64_t memory_consumption;
+    int filled_cell;
+    int full_bucket;
+    int max_kick_steps;
+
+    uint32_t* T;
+    uint16_t* rid; // for simulation
+    function<bool (uint16_t, const Bitwise&)>* io_sim_;
+
+    int max_2_power;
+    int big_seg;
+    int len[4];
     size_t seed;
+    static uint32_t encode_table[1 << 16];
+    static uint32_t decode_table[1 << 16];
+
+    uint64_t position_hash(uint64_t ele);  // hash to range [0, n - 1]
+    fp_t fingerprint(uint64_t ele);  // 32-bit to 'fp_len'-bit fingerprint
+    int alternate(int pos, fp_t fp); // get alternate position
+
+    // interface for semi-sorted bucket
+    inline int high_bit(fp_t fp);
+    inline int low_bit(fp_t fp);
+    inline void sort_pair(fp_t& a, fp_t& b);
+    void get_bucket(int pos, fp_t* store);
+    void set_bucket(int pos, fp_t* sotre);
+    void test_bucket();
+    void make_balance();
+
+    int insert_to_bucket(fp_t* store, fp_t fp);  // insert one fingerprint to bucket [pos]
+    int lookup_in_bucket(int pos, fp_t fp);  // lookup one fingerprint in  bucket [pos]
+    int lookupIO_in_bucket(int pos, fp_t fp, const Bitwise& key);
+    int del_in_bucket(int pos, fp_t fp);  // lookup one fingerprint in  bucket [pos]
+
+    bool insert(uint64_t ele, uint16_t runid);
+    bool lookup(uint64_t ele);
+    bool lookupIO(uint64_t ele, const Bitwise &key);
+    bool del(uint64_t ele);
+
 public:
     VacuumFilter(size_t nbits);
     VacuumFilter(size_t nbits, function<bool (uint16_t, const Bitwise&)>* io_sim);
+    ~VacuumFilter() { delete T; delete rid; }
+
+    void init(int _n, int _m, int _max_kick_steps);
+    void clear();
+
     bool AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids);
     bool AddKeys_len(const vector<Bitwise> &keys, const vector<uint16_t> & runids);
     bool Query(const Bitwise &key);
     bool QueryIO(const Bitwise &key);
     bool Query_len(const Bitwise &key);
     bool QueryIO_len(const Bitwise &key);
-    size_t mem() const;
 
+    double get_load_factor();
+    double get_full_bucket_factor();
+    double get_bits_per_item();
+    size_t mem() const;
     void printStats() const {}
 };
 

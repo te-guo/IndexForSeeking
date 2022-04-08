@@ -351,11 +351,6 @@ size_t Rosetta<FilterClass, keep_stats>::mem() const{
 
 namespace vacuum{
 
-template <typename fp_t, int fp_len>
-uint64_t vFilter<fp_t, fp_len>::position_hash(uint64_t ele) {
-    return (ele>>32) % n;
-}
-
 int upperpower2(int x) {
     int ret = 1;
     for (; ret < x;) ret <<= 1;
@@ -401,82 +396,62 @@ int proper_alt_range(int M, int i, int* len) {
     }
     return alt_range;
 }
-template<> uint32_t SemiSortCuckooFilter<uint32_t, 17>::encode_table[1 << 16] = {};
-template<> uint32_t SemiSortCuckooFilter<uint32_t, 17>::decode_table[1 << 16] = {};
-template<> uint32_t SemiSortCuckooFilter<uint32_t, 13>::encode_table[1 << 16] = {};
-template<> uint32_t SemiSortCuckooFilter<uint32_t, 13>::decode_table[1 << 16] = {};
-template<> uint32_t SemiSortCuckooFilter<uint32_t, 9>::encode_table[1 << 16] = {};
-template<> uint32_t SemiSortCuckooFilter<uint32_t, 9>::decode_table[1 << 16] = {};
-template<> uint32_t SemiSortCuckooFilter<uint32_t, 5>::encode_table[1 << 16] = {};
-template<> uint32_t SemiSortCuckooFilter<uint32_t, 5>::decode_table[1 << 16] = {};
-//+++ We need to make the 'max_item' to be the number of buckets
+template<> uint32_t VacuumFilter<uint32_t, 17>::encode_table[1 << 16] = {};
+template<> uint32_t VacuumFilter<uint32_t, 17>::decode_table[1 << 16] = {};
+template<> uint32_t VacuumFilter<uint32_t, 13>::encode_table[1 << 16] = {};
+template<> uint32_t VacuumFilter<uint32_t, 13>::decode_table[1 << 16] = {};
+template<> uint32_t VacuumFilter<uint32_t, 9>::encode_table[1 << 16] = {};
+template<> uint32_t VacuumFilter<uint32_t, 9>::decode_table[1 << 16] = {};
+template<> uint32_t VacuumFilter<uint32_t, 5>::encode_table[1 << 16] = {};
+template<> uint32_t VacuumFilter<uint32_t, 5>::decode_table[1 << 16] = {};
+
 template <typename fp_t, int fp_len>
-void SemiSortCuckooFilter<fp_t, fp_len>::init(int max_item, int _m, int _step) {
-    int _n = MAX((max_item / 0.96 / _m), 1);
-
-    if (false && _n < 10000) {
-        if (_n < 256)
-            big_seg = (upperpower2(_n));
-        else
-            big_seg = (upperpower2(_n / 4));
-        _n = ROUNDUP(_n, big_seg);
-        len[0] = big_seg - 1;
-        len[1] = big_seg - 1;
-        len[2] = big_seg - 1;
-        len[3] = big_seg - 1;
-    } else {
-        big_seg = 0;
-        big_seg = max(big_seg, proper_alt_range(_n, 0, len));
-        int new_n = ROUNDUP(_n, big_seg);
-        _n = new_n;
-
-        big_seg--;
-        len[0] = big_seg;
-        for (int i = 1; i < 4; i++) len[i] = proper_alt_range(_n, i, len) - 1;
-        len[3] = (len[3] + 1) * 2 - 1;
-    }
-
-    this->n = _n;
-    this->m = _m;
-    this->max_kick_steps = _step;
-    this->filled_cell = 0;
-    this->full_bucket = 0;
-
-    uint64_t how_many_bit = (uint64_t)this->n * this->m * (fp_len - 1);
-    this->memory_consumption =
-        ROUNDUP(how_many_bit + 64, 8) / 8 + 8;  // how many bytes !
-
-    max_2_power = 1;
-    for (; max_2_power * 2 < _n;) max_2_power <<= 1;
-    this->T = new uint32_t[this->memory_consumption / sizeof(uint32_t)]();
-    this->rid = new uint16_t[this->n * this->m]();
-
-    int index = 0;
-    for (int i = 0; i < 16; i++)
-        for (int j = 0; j < ((i == 0) ? 1 : i + 1); j++)
-            for (int k = 0; k < ((j == 0) ? 1 : j + 1); k++)
-                for (int l = 0; l < ((k == 0) ? 1 : k + 1); l++) {
-                    int plain_bit = (i << 12) + (j << 8) + (k << 4) + l;
-                    encode_table[plain_bit] = index;
-                    decode_table[index] = plain_bit;
-                    ++index;
-                }
+uint64_t VacuumFilter<fp_t, fp_len>::position_hash(uint64_t ele) {
+    return (ele>>32) % n;
 }
 
 template <typename fp_t, int fp_len>
-void SemiSortCuckooFilter<fp_t, fp_len>::clear() {
-    this->filled_cell = 0;
-    memset(this->T, 0, this->memory_consumption);
-}
-
-template <typename fp_t, int fp_len>
-fp_t SemiSortCuckooFilter<fp_t, fp_len>::fingerprint(uint64_t ele) {
+fp_t VacuumFilter<fp_t, fp_len>::fingerprint(uint64_t ele) {
     fp_t h = (ele & 0x0000ffffu) % ((1ull << fp_len) - 1) + 1;
     return h;
 }
 
+uint64_t _random_seed = 0x8091a2b3c4d5e6f7;
+uint32_t hash_func3_32bit(uint32_t fp){
+	uint64_t h = fp ^ _random_seed;
+	h ^= h >> 16;
+	h *= 0x85ebca6b;
+	h ^= h >> 13;
+	h *= 0xc2b2ae35;
+	h ^= h >> 16;
+	return h;
+}
 template <typename fp_t, int fp_len>
-void SemiSortCuckooFilter<fp_t, fp_len>::get_bucket(int pos, fp_t* store) {
+int VacuumFilter<fp_t, fp_len>::alternate(int pos, fp_t fp)  // get alternate position
+{
+    uint32_t fp_hash = hash_func3_32bit(fp);
+    int seg = this->len[fp & 3];
+    return pos ^ (fp_hash & seg);
+}
+
+
+template <typename fp_t, int fp_len>
+inline int VacuumFilter<fp_t, fp_len>::high_bit(fp_t fp) {
+    return (fp >> (fp_len - 4)) & ((1 << 4) - 1);
+}
+
+template <typename fp_t, int fp_len>
+inline int VacuumFilter<fp_t, fp_len>::low_bit(fp_t fp) {
+    return fp & ((1 << (fp_len - 4)) - 1);
+}
+
+template <typename fp_t, int fp_len>
+inline void VacuumFilter<fp_t, fp_len>::sort_pair(fp_t& a, fp_t& b) {
+    if ((a) < (b)) swap(a, b);
+}
+
+template <typename fp_t, int fp_len>
+void VacuumFilter<fp_t, fp_len>::get_bucket(int pos, fp_t* store) {
     // Default :
     //
     // Little Endian Store
@@ -548,19 +523,15 @@ void SemiSortCuckooFilter<fp_t, fp_len>::get_bucket(int pos, fp_t* store) {
     store[4] += store[3] != 0;
 }
 
-template <typename fp_t, int fp_len>
-inline void SemiSortCuckooFilter<fp_t, fp_len>::sort_pair(fp_t& a, fp_t& b) {
-    if ((a) < (b)) swap(a, b);
-}
 
 template <typename fp_t, int fp_len>
-void SemiSortCuckooFilter<fp_t, fp_len>::set_bucket(int pos, fp_t* store) {
+void VacuumFilter<fp_t, fp_len>::set_bucket(int pos, fp_t* store) {
     // 0. sort store ! descendant order >>>>>>
-    if(store[0] < store[2]) swap(store[0], store[2]), swap(rid[pos * this->m + 0], rid[pos * this->m + 2]);
-    if(store[1] < store[3]) swap(store[1], store[3]), swap(rid[pos * this->m + 1], rid[pos * this->m + 3]);
-    if(store[0] < store[1]) swap(store[0], store[1]), swap(rid[pos * this->m + 0], rid[pos * this->m + 1]);
-    if(store[2] < store[3]) swap(store[2], store[3]), swap(rid[pos * this->m + 2], rid[pos * this->m + 3]);
-    if(store[1] < store[2]) swap(store[1], store[2]), swap(rid[pos * this->m + 1], rid[pos * this->m + 2]);
+    if(store[0] < store[2]) swap(store[0], store[2]), swap(rid[pos * m + 0], rid[pos * m + 2]);
+    if(store[1] < store[3]) swap(store[1], store[3]), swap(rid[pos * m + 1], rid[pos * m + 3]);
+    if(store[0] < store[1]) swap(store[0], store[1]), swap(rid[pos * m + 0], rid[pos * m + 1]);
+    if(store[2] < store[3]) swap(store[2], store[3]), swap(rid[pos * m + 2], rid[pos * m + 3]);
+    if(store[1] < store[2]) swap(store[1], store[2]), swap(rid[pos * m + 1], rid[pos * m + 2]);
 
     // 1. compute the encode
 
@@ -618,22 +589,12 @@ void SemiSortCuckooFilter<fp_t, fp_len>::set_bucket(int pos, fp_t* store) {
 
 
 template <typename fp_t, int fp_len>
-inline int SemiSortCuckooFilter<fp_t, fp_len>::high_bit(fp_t fp) {
-    return (fp >> (fp_len - 4)) & ((1 << 4) - 1);
-}
-
-template <typename fp_t, int fp_len>
-inline int SemiSortCuckooFilter<fp_t, fp_len>::low_bit(fp_t fp) {
-    return fp & ((1 << (fp_len - 4)) - 1);
-}
-
-template <typename fp_t, int fp_len>
-int SemiSortCuckooFilter<fp_t, fp_len>::insert_to_bucket(fp_t* store, fp_t fp) {
+int VacuumFilter<fp_t, fp_len>::insert_to_bucket(fp_t* store, fp_t fp) {
     // if success return 0
     // if find collision : return 1 + position
     // if full : return 1 + 4
 
-    if (store[this->m] == this->m)
+    if (store[m] == m)
         return 1 + 4;
     else {
         store[3] = fp; // sorted -- store[3] must be empty !
@@ -642,12 +603,61 @@ int SemiSortCuckooFilter<fp_t, fp_len>::insert_to_bucket(fp_t* store, fp_t fp) {
 }
 
 template <typename fp_t, int fp_len>
-bool SemiSortCuckooFilter<fp_t, fp_len>::insert(uint64_t ele) {
-    return false;
+int VacuumFilter<fp_t, fp_len>::lookup_in_bucket(int pos, fp_t fp) {
+    // If lookup success return 1
+    // If lookup fail and the bucket is full return 2
+    // If lookup fail and the bucket is not full return 3
+
+    fp_t store[8];
+    get_bucket(pos, store);
+
+    int isFull = 1;
+    for (int i = 0; i < m; i++) {
+        fp_t t = store[i];
+        if (t == fp) return 1;
+        isFull &= (t != 0);
+    }
+    return (isFull) ? 2 : 3;
 }
 
 template <typename fp_t, int fp_len>
-bool SemiSortCuckooFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
+int VacuumFilter<fp_t, fp_len>::lookupIO_in_bucket(int pos, fp_t fp, const Bitwise& key) {
+    // If lookup success return 1
+    // If lookup fail and the bucket is full return 2
+    // If lookup fail and the bucket is not full return 3
+
+    fp_t store[8];
+    get_bucket(pos, store);
+
+    int isFull = 1;
+    for (int i = 0; i < m; i++) {
+        fp_t t = store[i];
+        if (t == fp && (*io_sim_)(rid[pos * m + i], key)) return 1;
+        isFull &= (t != 0);
+    }
+    return (isFull) ? 2 : 3;
+}
+
+template <typename fp_t, int fp_len>
+int VacuumFilter<fp_t, fp_len>::del_in_bucket(int pos, fp_t fp) {
+    fp_t store[8];
+    get_bucket(pos, store);
+
+    for (int i = 0; i < m; i++) {
+        fp_t t = store[i];
+        if (t == fp) {
+            store[i] = 0;
+            rid[pos * m + i] = 0;
+            --this->filled_cell;
+            set_bucket(pos, store);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+template <typename fp_t, int fp_len>
+bool VacuumFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
     // If insert success return true
     // If insert fail return false
 
@@ -661,16 +671,16 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
     this->get_bucket(cur1, store1);
     this->get_bucket(cur2, store2);
 
-    if (store1[this->m] <= store2[this->m]) {
+    if (store1[m] <= store2[m]) {
         if (this->insert_to_bucket(store1, fp) == 0) {
-            rid[cur1 * this->m + 3] = runid;
+            rid[cur1 * m + 3] = runid;
             this->filled_cell++;
             this->set_bucket(cur1, store1);
             return true;
         }
     } else {
         if (this->insert_to_bucket(store2, fp) == 0) {
-            rid[cur2 * this->m + 3] = runid;
+            rid[cur2 * m + 3] = runid;
             this->filled_cell++;
             this->set_bucket(cur2, store2);
             return true;
@@ -678,7 +688,7 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
     }
 
     // randomly choose one bucket's elements to kick
-    int rk = rand() % this->m;
+    int rk = rand() % m;
 
     // get those item
     int cur;
@@ -690,9 +700,9 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
         cur = cur2, cur_store = store2;
 
     fp_t tmp_fp = cur_store[rk];
-    uint16_t tmp_rid = rid[cur * this->m + rk];
+    uint16_t tmp_rid = rid[cur * m + rk];
     cur_store[rk] = fp;
-    rid[cur * this->m + rk] = runid;
+    rid[cur * m + rk] = runid;
     this->set_bucket(cur, cur_store);
 
     int alt = alternate(cur, tmp_fp);
@@ -700,15 +710,15 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
     for (int i = 0; i < this->max_kick_steps; i++) {
         memset(store1, 0, sizeof(store1));
         this->get_bucket(alt, store1);
-        if (store1[this->m] == this->m) {
-            for (int j = 0; j < this->m; j++) {
+        if (store1[m] == m) {
+            for (int j = 0; j < m; j++) {
                 int nex = alternate(alt, store1[j]);
                 this->get_bucket(nex, store2);
-                if (store2[this->m] < this->m) {
-                    store2[this->m - 1] = store1[j];
-                    rid[nex * this->m + this->m - 1] = rid[alt * this->m + j];
+                if (store2[m] < m) {
+                    store2[m - 1] = store1[j];
+                    rid[nex * m + m - 1] = rid[alt * m + j];
                     store1[j] = tmp_fp;
-                    rid[alt * this->m + j] = tmp_rid;
+                    rid[alt * m + j] = tmp_rid;
                     this->filled_cell++;
                     this->set_bucket(nex, store2);
                     this->set_bucket(alt, store1);
@@ -716,19 +726,19 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
                 }
             }
 
-            rk = rand() % this->m;
+            rk = rand() % m;
             fp = store1[rk];
-            runid = rid[alt * this->m + rk];
+            runid = rid[alt * m + rk];
             store1[rk] = tmp_fp;
-            rid[alt * this->m + rk] = tmp_rid;
+            rid[alt * m + rk] = tmp_rid;
             this->set_bucket(alt, store1);
 
             tmp_fp = fp;
             tmp_rid = runid;
             alt = alternate(alt, tmp_fp);
         } else {
-            store1[this->m - 1] = tmp_fp;
-            rid[alt * this->m + this->m - 1] = tmp_rid;
+            store1[m - 1] = tmp_fp;
+            rid[alt * m + m - 1] = tmp_rid;
             this->filled_cell++;
             this->set_bucket(alt, store1);
             return true;
@@ -738,43 +748,7 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
 }
 
 template <typename fp_t, int fp_len>
-int SemiSortCuckooFilter<fp_t, fp_len>::lookup_in_bucket(int pos, fp_t fp) {
-    // If lookup success return 1
-    // If lookup fail and the bucket is full return 2
-    // If lookup fail and the bucket is not full return 3
-
-    fp_t store[8];
-    get_bucket(pos, store);
-
-    int isFull = 1;
-    for (int i = 0; i < this->m; i++) {
-        fp_t t = store[i];
-        if (t == fp) return 1;
-        isFull &= (t != 0);
-    }
-    return (isFull) ? 2 : 3;
-}
-
-template <typename fp_t, int fp_len>
-int SemiSortCuckooFilter<fp_t, fp_len>::lookupIO_in_bucket(int pos, fp_t fp, const Bitwise& key) {
-    // If lookup success return 1
-    // If lookup fail and the bucket is full return 2
-    // If lookup fail and the bucket is not full return 3
-
-    fp_t store[8];
-    get_bucket(pos, store);
-
-    int isFull = 1;
-    for (int i = 0; i < this->m; i++) {
-        fp_t t = store[i];
-        if (t == fp && (*io_sim_)(rid[pos * this->m + i], key)) return 1;
-        isFull &= (t != 0);
-    }
-    return (isFull) ? 2 : 3;
-}
-
-template <typename fp_t, int fp_len>
-bool SemiSortCuckooFilter<fp_t, fp_len>::lookup(uint64_t ele) {
+bool VacuumFilter<fp_t, fp_len>::lookup(uint64_t ele) {
     // If ele is positive, return true
     // negative -- return false
 
@@ -793,7 +767,7 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::lookup(uint64_t ele) {
 }
 
 template <typename fp_t, int fp_len>
-bool SemiSortCuckooFilter<fp_t, fp_len>::lookupIO(uint64_t ele, const Bitwise &key) {
+bool VacuumFilter<fp_t, fp_len>::lookupIO(uint64_t ele, const Bitwise &key) {
     // If ele is positive, return true
     // negative -- return false
 
@@ -812,25 +786,7 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::lookupIO(uint64_t ele, const Bitwise &k
 }
 
 template <typename fp_t, int fp_len>
-int SemiSortCuckooFilter<fp_t, fp_len>::del_in_bucket(int pos, fp_t fp) {
-    fp_t store[8];
-    get_bucket(pos, store);
-
-    for (int i = 0; i < this->m; i++) {
-        fp_t t = store[i];
-        if (t == fp) {
-            store[i] = 0;
-            rid[pos * this->m + i] = 0;
-            --this->filled_cell;
-            set_bucket(pos, store);
-            return 1;
-        }
-    }
-    return 0;
-}
-
-template <typename fp_t, int fp_len>
-bool SemiSortCuckooFilter<fp_t, fp_len>::del(uint64_t ele) {
+bool VacuumFilter<fp_t, fp_len>::del(uint64_t ele) {
     // If ele is positive, return true
     // negative -- return false
 
@@ -847,38 +803,6 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::del(uint64_t ele) {
 
     return ok2 == 1;
 }
-template <typename fp_t, int fp_len>
-double SemiSortCuckooFilter<fp_t, fp_len>::get_load_factor() {
-    return filled_cell * 1.0 / this->n / this->m;
-}
-
-
-template <typename fp_t, int fp_len>
-double SemiSortCuckooFilter<fp_t, fp_len>::get_bits_per_item() {
-    return double(this->memory_consumption) * 8 / filled_cell;
-}
-
-template <typename fp_t, int fp_len>
-double SemiSortCuckooFilter<fp_t, fp_len>::get_full_bucket_factor() {
-    return full_bucket * 1.0 / this->n;
-}
-uint64_t _random_seed = 0x8091a2b3c4d5e6f7;
-uint32_t hash_func3_32bit(uint32_t fp){
-	uint64_t h = fp ^ _random_seed;
-	h ^= h >> 16;
-	h *= 0x85ebca6b;
-	h ^= h >> 13;
-	h *= 0xc2b2ae35;
-	h ^= h >> 16;
-	return h;
-}
-template <typename fp_t, int fp_len>
-int VacuumFilter<fp_t, fp_len>::alternate(int pos, fp_t fp)  // get alternate position
-{
-    uint32_t fp_hash = hash_func3_32bit(fp);
-    int seg = this->len[fp & 3];
-    return pos ^ (fp_hash & seg);
-}
 
 template <typename fp_t, int fp_len>
 VacuumFilter<fp_t, fp_len>::VacuumFilter(size_t nbits){
@@ -892,6 +816,67 @@ VacuumFilter<fp_t, fp_len>::VacuumFilter(size_t nbits, function<bool (uint16_t, 
     seed = rand();
     this->io_sim_ = io_sim;
 }
+
+//+++ We need to make the 'max_item' to be the number of buckets
+template <typename fp_t, int fp_len>
+void VacuumFilter<fp_t, fp_len>::init(int max_item, int _m, int _step) {
+    int _n = MAX((max_item / 0.96 / _m), 1);
+
+    if (false && _n < 10000) {
+        if (_n < 256)
+            big_seg = (upperpower2(_n));
+        else
+            big_seg = (upperpower2(_n / 4));
+        _n = ROUNDUP(_n, big_seg);
+        len[0] = big_seg - 1;
+        len[1] = big_seg - 1;
+        len[2] = big_seg - 1;
+        len[3] = big_seg - 1;
+    } else {
+        big_seg = 0;
+        big_seg = max(big_seg, proper_alt_range(_n, 0, len));
+        int new_n = ROUNDUP(_n, big_seg);
+        _n = new_n;
+
+        big_seg--;
+        len[0] = big_seg;
+        for (int i = 1; i < 4; i++) len[i] = proper_alt_range(_n, i, len) - 1;
+        len[3] = (len[3] + 1) * 2 - 1;
+    }
+
+    this->n = _n;
+    this->m = _m;
+    this->max_kick_steps = _step;
+    this->filled_cell = 0;
+    this->full_bucket = 0;
+
+    uint64_t how_many_bit = (uint64_t)this->n * this->m * (fp_len - 1);
+    this->memory_consumption = ROUNDUP(how_many_bit + 64, 8) / 8 + 8;  // how many bytes !
+
+    max_2_power = 1;
+    for (; max_2_power * 2 < _n;) max_2_power <<= 1;
+    this->T = new uint32_t[this->memory_consumption / sizeof(uint32_t)]();
+    this->rid = new uint16_t[this->n * this->m]();
+
+    int index = 0;
+    for (int i = 0; i < 16; i++)
+        for (int j = 0; j < ((i == 0) ? 1 : i + 1); j++)
+            for (int k = 0; k < ((j == 0) ? 1 : j + 1); k++)
+                for (int l = 0; l < ((k == 0) ? 1 : k + 1); l++) {
+                    int plain_bit = (i << 12) + (j << 8) + (k << 4) + l;
+                    encode_table[plain_bit] = index;
+                    decode_table[index] = plain_bit;
+                    ++index;
+                }
+}
+
+template <typename fp_t, int fp_len>
+void VacuumFilter<fp_t, fp_len>::clear() {
+    this->filled_cell = 0;
+    memset(this->T, 0, this->memory_consumption);
+}
+
+
 template <typename fp_t, int fp_len>
 bool VacuumFilter<fp_t, fp_len>::AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids){
     for(int i = 0; i < keys.size(); i++)
@@ -929,6 +914,19 @@ bool VacuumFilter<fp_t, fp_len>::Query_len(const Bitwise &key){
 template <typename fp_t, int fp_len>
 bool VacuumFilter<fp_t, fp_len>::QueryIO_len(const Bitwise &key){
     return this->lookupIO(key.hash_len(seed), key);
+}
+
+template <typename fp_t, int fp_len>
+double VacuumFilter<fp_t, fp_len>::get_load_factor() {
+    return filled_cell * 1.0 / this->n / this->m;
+}
+template <typename fp_t, int fp_len>
+double VacuumFilter<fp_t, fp_len>::get_bits_per_item() {
+    return double(this->memory_consumption) * 8 / filled_cell;
+}
+template <typename fp_t, int fp_len>
+double VacuumFilter<fp_t, fp_len>::get_full_bucket_factor() {
+    return full_bucket * 1.0 / this->n;
 }
 template <typename fp_t, int fp_len>
 size_t VacuumFilter<fp_t, fp_len>::mem() const{
