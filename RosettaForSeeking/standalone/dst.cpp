@@ -83,7 +83,7 @@ void BloomFilter<keep_stats>::init() {
 }
 
 template<bool keep_stats>
-bool BloomFilter<keep_stats>::AddKeys(const vector<Bitwise> &keys) {
+bool BloomFilter<keep_stats>::AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids) {
     if (data_.size() == 0) return true;
     if (nkeys_ == 0){
         nkeys_ = keys.size();
@@ -96,7 +96,7 @@ bool BloomFilter<keep_stats>::AddKeys(const vector<Bitwise> &keys) {
 }
 
 template<bool keep_stats>
-bool BloomFilter<keep_stats>::AddKeys_len(const vector<Bitwise> &keys) {
+bool BloomFilter<keep_stats>::AddKeys_len(const vector<Bitwise> &keys, const vector<uint16_t> & runids) {
     if (data_.size() == 0) return true;
     if (nkeys_ == 0){
         nkeys_ = keys.size();
@@ -136,7 +136,7 @@ bool BloomFilter<keep_stats>::Query_len(const Bitwise &key) {
 
 
 #ifdef USE_DTL
-bool DtlBlockedBloomFilter::AddKeys(const vector<Bitwise> &keys) {
+bool DtlBlockedBloomFilter::AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids) {
     if (data_.size() == 0) return true;
     nkeys_ = keys.size();
     size_t k = data_.size()/nkeys_;
@@ -160,10 +160,10 @@ bool DtlBlockedBloomFilter::Query(const Bitwise &key) {
 #endif
 
 template<class FilterClass, bool keep_stats>
-bool Rosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
+bool Rosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids) {
     nkeys_ = keys.size();
     vector<size_t> distribution;
-    vector<vector<Bitwise>> bloom_keys;
+    vector<pair<vector<Bitwise>, vector<uint16_t>>> bloom_keys;
     maxlen_ = 0;
     for (size_t i=0; i<nkeys_; ++i)
         maxlen_ = max(maxlen_, keys[i].size());
@@ -177,13 +177,17 @@ bool Rosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
     vector<size_t> nbits = get_nbits_(distribution);
 
     for (size_t j=0; j<maxlen_; ++j)
-        if (nbits[j] > 0)
-            bloom_keys[j].reserve(distribution[j]);
+        if (nbits[j] > 0){
+            bloom_keys[j].first.reserve(distribution[j]);
+            bloom_keys[j].second.reserve(distribution[j]);
+        }
     for (size_t i=0; i<nkeys_; ++i) {
         size_t lcp = i>0?keys[i-1].lcp(keys[i]):0;
         for (size_t j=lcp; j<maxlen_; ++j)
-            if (nbits[j] > 0)
-                bloom_keys[j].emplace_back(Bitwise(keys[i], j+1));
+            if (nbits[j] > 0){
+                bloom_keys[j].first.emplace_back(Bitwise(keys[i], j+1));
+                bloom_keys[j].second.emplace_back(runids[i]);
+            }
     }
 
     if (keep_stats)
@@ -192,7 +196,7 @@ bool Rosetta<FilterClass, keep_stats>::AddKeys(const vector<Bitwise> &keys) {
     bfs_.reserve(maxlen_);
     for (size_t i=0; i<maxlen_; ++i) {
         bfs_.emplace_back(new FilterClass(nbits[i]));
-        if(!bfs_[i]->AddKeys(bloom_keys[i]))
+        if(!bfs_[i]->AddKeys(bloom_keys[i].first, bloom_keys[i].second))
             return false;
     }
     return true;
@@ -399,6 +403,8 @@ int proper_alt_range(int M, int i, int* len) {
 }
 template<> uint32_t SemiSortCuckooFilter<uint32_t, 17>::encode_table[1 << 16] = {};
 template<> uint32_t SemiSortCuckooFilter<uint32_t, 17>::decode_table[1 << 16] = {};
+template<> uint32_t SemiSortCuckooFilter<uint32_t, 13>::encode_table[1 << 16] = {};
+template<> uint32_t SemiSortCuckooFilter<uint32_t, 13>::decode_table[1 << 16] = {};
 template<> uint32_t SemiSortCuckooFilter<uint32_t, 9>::encode_table[1 << 16] = {};
 template<> uint32_t SemiSortCuckooFilter<uint32_t, 9>::decode_table[1 << 16] = {};
 template<> uint32_t SemiSortCuckooFilter<uint32_t, 5>::encode_table[1 << 16] = {};
@@ -442,7 +448,8 @@ void SemiSortCuckooFilter<fp_t, fp_len>::init(int max_item, int _m, int _step) {
 
     max_2_power = 1;
     for (; max_2_power * 2 < _n;) max_2_power <<= 1;
-    this->T = new uint32_t[this->memory_consumption]();
+    this->T = new uint32_t[this->memory_consumption / sizeof(uint32_t)]();
+    this->rid = new uint16_t[this->n * this->m]();
 
     int index = 0;
     for (int i = 0; i < 16; i++)
@@ -549,12 +556,11 @@ inline void SemiSortCuckooFilter<fp_t, fp_len>::sort_pair(fp_t& a, fp_t& b) {
 template <typename fp_t, int fp_len>
 void SemiSortCuckooFilter<fp_t, fp_len>::set_bucket(int pos, fp_t* store) {
     // 0. sort store ! descendant order >>>>>>
-
-    sort_pair(store[0], store[2]);
-    sort_pair(store[1], store[3]);
-    sort_pair(store[0], store[1]);
-    sort_pair(store[2], store[3]);
-    sort_pair(store[1], store[2]);
+    if(store[0] < store[2]) swap(store[0], store[2]), swap(rid[pos * this->m + 0], rid[pos * this->m + 2]);
+    if(store[1] < store[3]) swap(store[1], store[3]), swap(rid[pos * this->m + 1], rid[pos * this->m + 3]);
+    if(store[0] < store[1]) swap(store[0], store[1]), swap(rid[pos * this->m + 0], rid[pos * this->m + 1]);
+    if(store[2] < store[3]) swap(store[2], store[3]), swap(rid[pos * this->m + 2], rid[pos * this->m + 3]);
+    if(store[1] < store[2]) swap(store[1], store[2]), swap(rid[pos * this->m + 1], rid[pos * this->m + 2]);
 
     // 1. compute the encode
 
@@ -641,6 +647,97 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::insert(uint64_t ele) {
 }
 
 template <typename fp_t, int fp_len>
+bool SemiSortCuckooFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
+    // If insert success return true
+    // If insert fail return false
+
+    fp_t fp = this->fingerprint(ele);
+    int cur1 = this->position_hash(ele);
+    int cur2 = alternate(cur1, fp);
+
+    fp_t store1[8];
+    fp_t store2[8];
+
+    this->get_bucket(cur1, store1);
+    this->get_bucket(cur2, store2);
+
+    if (store1[this->m] <= store2[this->m]) {
+        if (this->insert_to_bucket(store1, fp) == 0) {
+            rid[cur1 * this->m + 3] = runid;
+            this->filled_cell++;
+            this->set_bucket(cur1, store1);
+            return true;
+        }
+    } else {
+        if (this->insert_to_bucket(store2, fp) == 0) {
+            rid[cur2 * this->m + 3] = runid;
+            this->filled_cell++;
+            this->set_bucket(cur2, store2);
+            return true;
+        }
+    }
+
+    // randomly choose one bucket's elements to kick
+    int rk = rand() % this->m;
+
+    // get those item
+    int cur;
+    fp_t* cur_store;
+
+    if (rand() & 1)
+        cur = cur1, cur_store = store1;
+    else
+        cur = cur2, cur_store = store2;
+
+    fp_t tmp_fp = cur_store[rk];
+    uint16_t tmp_rid = rid[cur * this->m + rk];
+    cur_store[rk] = fp;
+    rid[cur * this->m + rk] = runid;
+    this->set_bucket(cur, cur_store);
+
+    int alt = alternate(cur, tmp_fp);
+
+    for (int i = 0; i < this->max_kick_steps; i++) {
+        memset(store1, 0, sizeof(store1));
+        this->get_bucket(alt, store1);
+        if (store1[this->m] == this->m) {
+            for (int j = 0; j < this->m; j++) {
+                int nex = alternate(alt, store1[j]);
+                this->get_bucket(nex, store2);
+                if (store2[this->m] < this->m) {
+                    store2[this->m - 1] = store1[j];
+                    rid[nex * this->m + this->m - 1] = rid[alt * this->m + j];
+                    store1[j] = tmp_fp;
+                    rid[alt * this->m + j] = tmp_rid;
+                    this->filled_cell++;
+                    this->set_bucket(nex, store2);
+                    this->set_bucket(alt, store1);
+                    return true;
+                }
+            }
+
+            rk = rand() % this->m;
+            fp = store1[rk];
+            runid = rid[alt * this->m + rk];
+            store1[rk] = tmp_fp;
+            rid[alt * this->m + rk] = tmp_rid;
+            this->set_bucket(alt, store1);
+
+            tmp_fp = fp;
+            tmp_rid = runid;
+            alt = alternate(alt, tmp_fp);
+        } else {
+            store1[this->m - 1] = tmp_fp;
+            rid[alt * this->m + this->m - 1] = tmp_rid;
+            this->filled_cell++;
+            this->set_bucket(alt, store1);
+            return true;
+        }
+    }
+    return false;
+}
+
+template <typename fp_t, int fp_len>
 int SemiSortCuckooFilter<fp_t, fp_len>::lookup_in_bucket(int pos, fp_t fp) {
     // If lookup success return 1
     // If lookup fail and the bucket is full return 2
@@ -653,6 +750,24 @@ int SemiSortCuckooFilter<fp_t, fp_len>::lookup_in_bucket(int pos, fp_t fp) {
     for (int i = 0; i < this->m; i++) {
         fp_t t = store[i];
         if (t == fp) return 1;
+        isFull &= (t != 0);
+    }
+    return (isFull) ? 2 : 3;
+}
+
+template <typename fp_t, int fp_len>
+int SemiSortCuckooFilter<fp_t, fp_len>::lookupIO_in_bucket(int pos, fp_t fp, const Bitwise& key) {
+    // If lookup success return 1
+    // If lookup fail and the bucket is full return 2
+    // If lookup fail and the bucket is not full return 3
+
+    fp_t store[8];
+    get_bucket(pos, store);
+
+    int isFull = 1;
+    for (int i = 0; i < this->m; i++) {
+        fp_t t = store[i];
+        if (t == fp && (*io_sim_)(rid[pos * this->m + i], key)) return 1;
         isFull &= (t != 0);
     }
     return (isFull) ? 2 : 3;
@@ -678,6 +793,25 @@ bool SemiSortCuckooFilter<fp_t, fp_len>::lookup(uint64_t ele) {
 }
 
 template <typename fp_t, int fp_len>
+bool SemiSortCuckooFilter<fp_t, fp_len>::lookupIO(uint64_t ele, const Bitwise &key) {
+    // If ele is positive, return true
+    // negative -- return false
+
+    fp_t fp = fingerprint(ele);
+    int pos1 = this->position_hash(ele);
+
+    int ok1 = lookupIO_in_bucket(pos1, fp, key);
+
+    if (ok1 == 1) return true;
+    // if (ok1 == 3) return false;
+
+    int pos2 = alternate(pos1, fp);
+    int ok2 = lookupIO_in_bucket(pos2, fp, key);
+
+    return ok2 == 1;
+}
+
+template <typename fp_t, int fp_len>
 int SemiSortCuckooFilter<fp_t, fp_len>::del_in_bucket(int pos, fp_t fp) {
     fp_t store[8];
     get_bucket(pos, store);
@@ -686,6 +820,7 @@ int SemiSortCuckooFilter<fp_t, fp_len>::del_in_bucket(int pos, fp_t fp) {
         fp_t t = store[i];
         if (t == fp) {
             store[i] = 0;
+            rid[pos * this->m + i] = 0;
             --this->filled_cell;
             set_bucket(pos, store);
             return 1;
@@ -746,109 +881,34 @@ int VacuumFilter<fp_t, fp_len>::alternate(int pos, fp_t fp)  // get alternate po
 }
 
 template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::insert(uint64_t ele) {
-    // If insert success return true
-    // If insert fail return false
-
-    fp_t fp = this->fingerprint(ele);
-    int cur1 = this->position_hash(ele);
-    int cur2 = alternate(cur1, fp);
-
-    fp_t store1[8];
-    fp_t store2[8];
-
-    this->get_bucket(cur1, store1);
-    this->get_bucket(cur2, store2);
-
-    if (store1[this->m] <= store2[this->m]) {
-        if (this->insert_to_bucket(store1, fp) == 0) {
-            this->filled_cell++;
-            this->set_bucket(cur1, store1);
-            return true;
-        }
-    } else {
-        if (this->insert_to_bucket(store2, fp) == 0) {
-            this->filled_cell++;
-            this->set_bucket(cur2, store2);
-            return true;
-        }
-    }
-
-    // randomly choose one bucket's elements to kick
-    int rk = rand() % this->m;
-
-    // get those item
-    int cur;
-    fp_t* cur_store;
-
-    if (rand() & 1)
-        cur = cur1, cur_store = store1;
-    else
-        cur = cur2, cur_store = store2;
-
-    fp_t tmp_fp = cur_store[rk];
-    cur_store[rk] = fp;
-    this->set_bucket(cur, cur_store);
-
-    int alt = alternate(cur, tmp_fp);
-
-    for (int i = 0; i < this->max_kick_steps; i++) {
-        memset(store1, 0, sizeof(store1));
-        this->get_bucket(alt, store1);
-        if (store1[this->m] == this->m) {
-            for (int j = 0; j < this->m; j++) {
-                int nex = alternate(alt, store1[j]);
-                this->get_bucket(nex, store2);
-                if (store2[this->m] < this->m) {
-                    store2[this->m - 1] = store1[j];
-                    store1[j] = tmp_fp;
-                    this->filled_cell++;
-                    this->set_bucket(nex, store2);
-                    this->set_bucket(alt, store1);
-                    return true;
-                }
-            }
-
-            rk = rand() % this->m;
-            fp = store1[rk];
-            store1[rk] = tmp_fp;
-            this->set_bucket(alt, store1);
-
-            tmp_fp = fp;
-            alt = alternate(alt, tmp_fp);
-        } else {
-            store1[this->m - 1] = tmp_fp;
-            this->filled_cell++;
-            this->set_bucket(alt, store1);
-            return true;
-        }
-    }
-    return false;
-}
-
-template <typename fp_t, int fp_len>
 VacuumFilter<fp_t, fp_len>::VacuumFilter(size_t nbits){
     this->init(nbits / (fp_len - 1), 4, 2000);
     // mt19937 gen(1337);
     seed = rand(); //gen();
 }
 template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::AddKeys(const vector<Bitwise> &keys){
-    for(auto &key: keys)
-        if(!this->insert(key.hash(seed))){
+VacuumFilter<fp_t, fp_len>::VacuumFilter(size_t nbits, function<bool (uint16_t, const Bitwise&)>* io_sim){
+    this->init(nbits / (fp_len - 1), 4, 2000);
+    seed = rand();
+    this->io_sim_ = io_sim;
+}
+template <typename fp_t, int fp_len>
+bool VacuumFilter<fp_t, fp_len>::AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids){
+    for(int i = 0; i < keys.size(); i++)
+        if(!this->insert(keys[i].hash(seed), runids[i])){
             std::cerr<<"Cuckoo Insert Failed\n";
-            std::cerr<<"- key length: "<<key.size()<<std::endl;
+            std::cerr<<"- key length: "<<keys[i].size()<<std::endl;
             std::cerr<<"- load factor: "<<this->get_load_factor()<<std::endl;
             return false;
         }
     return true;
 }
 template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::AddKeys_len(const vector<Bitwise> &keys){
-    for(auto &key: keys)
-        if(!this->insert(key.hash_len(seed))){
+bool VacuumFilter<fp_t, fp_len>::AddKeys_len(const vector<Bitwise> &keys, const vector<uint16_t> & runids){
+    for(int i = 0; i < keys.size(); i++)
+        if(!this->insert(keys[i].hash_len(seed), runids[i])){
             std::cerr<<"Cuckoo Insert Failed\n";
-            std::cerr<<"- key length: "<<key.size()<<std::endl;
+            std::cerr<<"- key length: "<<keys[i].size()<<std::endl;
             std::cerr<<"- load factor: "<<this->get_load_factor()<<std::endl;
             return false;
         }
@@ -859,8 +919,16 @@ bool VacuumFilter<fp_t, fp_len>::Query(const Bitwise &key){
     return this->lookup(key.hash(seed));
 }
 template <typename fp_t, int fp_len>
+bool VacuumFilter<fp_t, fp_len>::QueryIO(const Bitwise &key){
+    return this->lookupIO(key.hash(seed), key);
+}
+template <typename fp_t, int fp_len>
 bool VacuumFilter<fp_t, fp_len>::Query_len(const Bitwise &key){
     return this->lookup(key.hash_len(seed));
+}
+template <typename fp_t, int fp_len>
+bool VacuumFilter<fp_t, fp_len>::QueryIO_len(const Bitwise &key){
+    return this->lookupIO(key.hash_len(seed), key);
 }
 template <typename fp_t, int fp_len>
 size_t VacuumFilter<fp_t, fp_len>::mem() const{
@@ -871,10 +939,11 @@ size_t VacuumFilter<fp_t, fp_len>::mem() const{
 
 
 template<class FilterClass>
-bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys) {
+bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids) {
     nkeys_ = keys.size();
     vector<size_t> idist, ldist;
-    vector<vector<Bitwise>> ikeys, lkeys;
+    vector<vector<Bitwise>> ikeys;
+    vector<pair<vector<Bitwise>, vector<uint16_t>>> lkeys;
     idist.resize(maxlen_, 0);
     ldist.resize(maxlen_, 0);
     ikeys.resize(maxlen_);
@@ -894,8 +963,10 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys) {
     for (size_t i=0; i<maxlen_; ++i){
         if (nbits.first[i] > 0)
             ikeys[i].reserve(idist[i]);
-        if (nbits.second[i] > 0)
-            lkeys[i].reserve(ldist[i]);
+        if (nbits.second[i] > 0){
+            lkeys[i].first.reserve(ldist[i]);
+            lkeys[i].second.reserve(ldist[i]);
+        }
     }
     for (size_t i = 0, lcp = 0; i<nkeys_; ++i) {
         size_t lcp2 = i + 1 < nkeys_ ? keys[i].lcp(keys[i + 1]) : 0;
@@ -904,7 +975,8 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys) {
             ck_pos++;
         for (size_t j = lcp; j < ck_pos; ++j)
             ikeys[j].emplace_back(Bitwise(keys[i], j + 1));
-        lkeys[ck_pos].emplace_back(Bitwise(keys[i], ck_pos + 1));
+        lkeys[ck_pos].first.emplace_back(Bitwise(keys[i], ck_pos + 1));
+        lkeys[ck_pos].second.emplace_back(runids[i]);
         lcp = lcp2;
     }
 
@@ -925,21 +997,21 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys) {
     cks_.reserve(maxlen_);
     for (size_t i=0; i<=ck_max_; ++i)
         if(ck_mask_ >> i & 1ull){
-            cks_.emplace_back(new FilterClass(nbits.second[i]));
-            if(!cks_[i]->AddKeys(lkeys[i]))
+            cks_.emplace_back(new FilterClass(nbits.second[i], &io_sim_));
+            if(!cks_[i]->AddKeys(lkeys[i].first, lkeys[i].second))
                 return false;
         }
         else
             cks_.emplace_back(nullptr);
     for (size_t i=ck_max_+1; i<maxlen_; ++i)
-        if(!cks_[ck_max_]->AddKeys_len(lkeys[i]))
+        if(!cks_[ck_max_]->AddKeys_len(lkeys[i].first, lkeys[i].second))
             return false;
     return true;
 }
 
 template<class FilterClass>
 bool SplittedRosetta<FilterClass>::Doubt(Bitwise *idx, size_t level) {
-    if (ck_mask_ >> level & 1ull && (level <= ck_max_ ? cks_[level]->Query(Bitwise(*idx, level+1)) : cks_[ck_max_]->Query_len(Bitwise(*idx, level + 1))) && this->io_sim_(Bitwise(*idx, level+1)))
+    if (ck_mask_ >> level & 1ull && (level <= ck_max_ ? cks_[level]->QueryIO(Bitwise(*idx, level+1)) : cks_[ck_max_]->QueryIO_len(Bitwise(*idx, level + 1))))
         return true;
     if (level >= maxlen_ - 1 || !(level <= bf_max_ ? bfs_[level]->Query(Bitwise(*idx, level+1)) : bfs_[bf_max_]->Query_len(Bitwise(*idx, level + 1))))
         return false;
@@ -959,7 +1031,7 @@ Bitwise *SplittedRosetta<FilterClass>::Seek(const Bitwise &from) {
     Bitwise *out = new Bitwise(tfrom.data(), tfrom.size()/8);
     int i;
     for(i = 0; i < tfrom.size(); i++)
-        if(ck_mask_ >> i & 1ull && (i <= ck_max_ ? cks_[i]->Query(Bitwise(*out, i+1)) : cks_[ck_max_]->Query_len(Bitwise(*out, i + 1))) && io_sim_(Bitwise(*out, i + 1)))
+        if(ck_mask_ >> i & 1ull && (i <= ck_max_ ? cks_[i]->QueryIO(Bitwise(*out, i+1)) : cks_[ck_max_]->QueryIO_len(Bitwise(*out, i + 1))))
             return out;
         else if(!(i <= bf_max_ ? bfs_[i]->Query(Bitwise(*out, i+1)) : bfs_[bf_max_]->Query_len(Bitwise(*out, i + 1))))
             break;
@@ -991,6 +1063,7 @@ template class Rosetta<vacuum::VacuumFilter<uint32_t, 17>, false>;
 template class Rosetta<vacuum::VacuumFilter<uint32_t, 9>, false>;
 template class Rosetta<vacuum::VacuumFilter<uint32_t, 5>, false>;
 template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 17>>;
+template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 13>>;
 template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 9>>;
 template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 5>>;
 

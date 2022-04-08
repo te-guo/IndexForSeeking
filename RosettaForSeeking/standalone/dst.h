@@ -264,7 +264,7 @@ class Filter {
     public:
         Filter(){};
         virtual ~Filter(){};
-        virtual bool AddKeys(const vector<Bitwise> &keys) = 0;
+        virtual bool AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids) = 0;
         virtual bool Query(const Bitwise &key) = 0;
 };
 
@@ -286,8 +286,8 @@ class BloomFilter final : public Filter {
         BloomFilter(size_t nbits, uint8_t* data, size_t nhf, size_t nkeys, vector<size_t> seeds): data_(Bitwise(data, nbits/8, false)), nhf_(nhf), nkeys_(nkeys), seeds_(seeds), nmod_(nbits) {}
 
         void init();
-        bool AddKeys(const vector<Bitwise> &keys);
-        bool AddKeys_len(const vector<Bitwise> &keys);
+        bool AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids = vector<uint16_t>());
+        bool AddKeys_len(const vector<Bitwise> &keys, const vector<uint16_t> & runids = vector<uint16_t>());
         bool Query(const Bitwise &key);
         bool Query_len(const Bitwise &key);
         void printStats() const {
@@ -311,7 +311,7 @@ class DtlBlockedBloomFilter final: public Filter {
         DtlBlockedBloomFilter(size_t nbits): data_(Bitwise(false, ((nbits+7)/8)*8)) {}
         //~DtlBlockedBloomFilter() { delete b_; }
 
-        bool AddKeys(const vector<Bitwise> &keys);
+        bool AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids);
         bool Query(const Bitwise &key);
 };
 #endif
@@ -337,7 +337,7 @@ class Rosetta final: public Filter {
                 delete bf;
         }
 
-        bool AddKeys(const vector<Bitwise> &keys);
+        bool AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids);
         bool Doubt(Bitwise *idx, size_t &C, size_t level, size_t maxlevel);
         Bitwise *GetFirst(const Bitwise &from, const Bitwise &to);
         Bitwise *Seek(const Bitwise &from);
@@ -395,7 +395,9 @@ public:
     virtual void init(int _n, int _m, int _max_kick_steps);
     void clear();
     virtual bool insert(uint64_t ele);
+    bool insert(uint64_t ele, uint16_t runid);
     bool lookup(uint64_t ele);
+    bool lookupIO(uint64_t ele, const Bitwise &key);
     virtual bool del(uint64_t ele);
     double get_load_factor();
     double get_full_bucket_factor();
@@ -407,11 +409,15 @@ public:
     static uint32_t encode_table[1 << 16];
     static uint32_t decode_table[1 << 16];
 
-    ~SemiSortCuckooFilter() { delete T; }
+    uint16_t* rid; // for simulation
+
+    ~SemiSortCuckooFilter() { delete T; delete rid; }
 
     int filled_cell;
     int full_bucket;
     int max_kick_steps;
+
+    function<bool (uint16_t, const Bitwise&)>* io_sim_;
 
     fp_t fingerprint(uint64_t ele);  // 32-bit to 'fp_len'-bit fingerprint
 
@@ -429,6 +435,8 @@ public:
         fp_t* store, fp_t fp);  // insert one fingerprint to bucket [pos]
     virtual int lookup_in_bucket(
         int pos, fp_t fp);  // lookup one fingerprint in  bucket [pos]
+    virtual int lookupIO_in_bucket(
+        int pos, fp_t fp, const Bitwise& key);
     virtual int del_in_bucket(
         int pos, fp_t fp);  // lookup one fingerprint in  bucket [pos]
 };
@@ -450,11 +458,13 @@ private:
     size_t seed;
 public:
     VacuumFilter(size_t nbits);
-    bool AddKeys(const vector<Bitwise> &keys);
-    bool AddKeys_len(const vector<Bitwise> &keys);
+    VacuumFilter(size_t nbits, function<bool (uint16_t, const Bitwise&)>* io_sim);
+    bool AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids);
+    bool AddKeys_len(const vector<Bitwise> &keys, const vector<uint16_t> & runids);
     bool Query(const Bitwise &key);
+    bool QueryIO(const Bitwise &key);
     bool Query_len(const Bitwise &key);
-    bool insert(uint64_t ele);
+    bool QueryIO_len(const Bitwise &key);
     size_t mem() const;
 
     void printStats() const {}
@@ -469,13 +479,13 @@ class SplittedRosetta final: public Filter {
         vector<BloomFilter<>*> bfs_;
         vector<FilterClass*> cks_;
         function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> get_nbits_;
-        function<bool (const Bitwise&)> io_sim_;
+        function<bool (uint16_t, const Bitwise&)> io_sim_;
         uint64_t ck_mask_;
         size_t bf_max_, ck_max_;
 
     public:
 
-        SplittedRosetta(size_t maxlen, size_t bf_max, size_t ck_max, uint64_t ck_mask, function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> get_nbits, function<bool (const Bitwise&)> io_sim):
+        SplittedRosetta(size_t maxlen, size_t bf_max, size_t ck_max, uint64_t ck_mask, function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> get_nbits, function<bool (uint16_t, const Bitwise&)> io_sim):
         maxlen_(maxlen), nkeys_(0), bf_max_(bf_max), ck_max_(ck_max), ck_mask_(ck_mask), get_nbits_(get_nbits), io_sim_(io_sim) {
             static_assert(is_base_of<Filter, FilterClass>::value, "DST template argument must be a filter");
         }
@@ -486,7 +496,7 @@ class SplittedRosetta final: public Filter {
                 delete ck;
         }
 
-        bool AddKeys(const vector<Bitwise> &keys);
+        bool AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids);
         bool Doubt(Bitwise *idx, size_t level);
         Bitwise *GetFirst(const Bitwise &from, const Bitwise &to) {}
         Bitwise *Seek(const Bitwise &from);
