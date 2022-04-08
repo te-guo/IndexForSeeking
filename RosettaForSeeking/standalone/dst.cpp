@@ -396,22 +396,16 @@ int proper_alt_range(int M, int i, int* len) {
     }
     return alt_range;
 }
-template<> uint32_t VacuumFilter<uint32_t, 17>::encode_table[1 << 16] = {};
-template<> uint32_t VacuumFilter<uint32_t, 17>::decode_table[1 << 16] = {};
-template<> uint32_t VacuumFilter<uint32_t, 13>::encode_table[1 << 16] = {};
-template<> uint32_t VacuumFilter<uint32_t, 13>::decode_table[1 << 16] = {};
-template<> uint32_t VacuumFilter<uint32_t, 9>::encode_table[1 << 16] = {};
-template<> uint32_t VacuumFilter<uint32_t, 9>::decode_table[1 << 16] = {};
-template<> uint32_t VacuumFilter<uint32_t, 5>::encode_table[1 << 16] = {};
-template<> uint32_t VacuumFilter<uint32_t, 5>::decode_table[1 << 16] = {};
+template<> uint32_t VacuumFilter<uint32_t>::encode_table[1 << 16] = {};
+template<> uint32_t VacuumFilter<uint32_t>::decode_table[1 << 16] = {};
 
-template <typename fp_t, int fp_len>
-uint64_t VacuumFilter<fp_t, fp_len>::position_hash(uint64_t ele) {
+template <typename fp_t>
+uint64_t VacuumFilter<fp_t>::position_hash(uint64_t ele) {
     return (ele>>32) % n;
 }
 
-template <typename fp_t, int fp_len>
-fp_t VacuumFilter<fp_t, fp_len>::fingerprint(uint64_t ele) {
+template <typename fp_t>
+fp_t VacuumFilter<fp_t>::fingerprint(uint64_t ele) {
     fp_t h = (ele & 0x0000ffffu) % ((1ull << fp_len) - 1) + 1;
     return h;
 }
@@ -426,8 +420,8 @@ uint32_t hash_func3_32bit(uint32_t fp){
 	h ^= h >> 16;
 	return h;
 }
-template <typename fp_t, int fp_len>
-int VacuumFilter<fp_t, fp_len>::alternate(int pos, fp_t fp)  // get alternate position
+template <typename fp_t>
+int VacuumFilter<fp_t>::alternate(int pos, fp_t fp)  // get alternate position
 {
     uint32_t fp_hash = hash_func3_32bit(fp);
     int seg = this->len[fp & 3];
@@ -435,23 +429,23 @@ int VacuumFilter<fp_t, fp_len>::alternate(int pos, fp_t fp)  // get alternate po
 }
 
 
-template <typename fp_t, int fp_len>
-inline int VacuumFilter<fp_t, fp_len>::high_bit(fp_t fp) {
+template <typename fp_t>
+inline int VacuumFilter<fp_t>::high_bit(fp_t fp) {
     return (fp >> (fp_len - 4)) & ((1 << 4) - 1);
 }
 
-template <typename fp_t, int fp_len>
-inline int VacuumFilter<fp_t, fp_len>::low_bit(fp_t fp) {
+template <typename fp_t>
+inline int VacuumFilter<fp_t>::low_bit(fp_t fp) {
     return fp & ((1 << (fp_len - 4)) - 1);
 }
 
-template <typename fp_t, int fp_len>
-inline void VacuumFilter<fp_t, fp_len>::sort_pair(fp_t& a, fp_t& b) {
+template <typename fp_t>
+inline void VacuumFilter<fp_t>::sort_pair(fp_t& a, fp_t& b) {
     if ((a) < (b)) swap(a, b);
 }
 
-template <typename fp_t, int fp_len>
-void VacuumFilter<fp_t, fp_len>::get_bucket(int pos, fp_t* store) {
+template <typename fp_t>
+void VacuumFilter<fp_t>::get_bucket(int pos, fp_t* store) {
     // Default :
     //
     // Little Endian Store
@@ -524,8 +518,8 @@ void VacuumFilter<fp_t, fp_len>::get_bucket(int pos, fp_t* store) {
 }
 
 
-template <typename fp_t, int fp_len>
-void VacuumFilter<fp_t, fp_len>::set_bucket(int pos, fp_t* store) {
+template <typename fp_t>
+void VacuumFilter<fp_t>::set_bucket(int pos, fp_t* store) {
     // 0. sort store ! descendant order >>>>>>
     if(store[0] < store[2]) swap(store[0], store[2]), swap(rid[pos * m + 0], rid[pos * m + 2]);
     if(store[1] < store[3]) swap(store[1], store[3]), swap(rid[pos * m + 1], rid[pos * m + 3]);
@@ -588,8 +582,8 @@ void VacuumFilter<fp_t, fp_len>::set_bucket(int pos, fp_t* store) {
 }
 
 
-template <typename fp_t, int fp_len>
-int VacuumFilter<fp_t, fp_len>::insert_to_bucket(fp_t* store, fp_t fp) {
+template <typename fp_t>
+int VacuumFilter<fp_t>::insert_to_bucket(fp_t* store, fp_t fp) {
     // if success return 0
     // if find collision : return 1 + position
     // if full : return 1 + 4
@@ -602,8 +596,8 @@ int VacuumFilter<fp_t, fp_len>::insert_to_bucket(fp_t* store, fp_t fp) {
     }
 }
 
-template <typename fp_t, int fp_len>
-int VacuumFilter<fp_t, fp_len>::lookup_in_bucket(int pos, fp_t fp) {
+template <typename fp_t>
+int VacuumFilter<fp_t>::lookup_in_bucket(int pos, fp_t fp) {
     // If lookup success return 1
     // If lookup fail and the bucket is full return 2
     // If lookup fail and the bucket is not full return 3
@@ -620,8 +614,8 @@ int VacuumFilter<fp_t, fp_len>::lookup_in_bucket(int pos, fp_t fp) {
     return (isFull) ? 2 : 3;
 }
 
-template <typename fp_t, int fp_len>
-int VacuumFilter<fp_t, fp_len>::lookupIO_in_bucket(int pos, fp_t fp, const Bitwise& key) {
+template <typename fp_t>
+int VacuumFilter<fp_t>::lookupIO_in_bucket(int pos, fp_t fp, const Bitwise& key) {
     // If lookup success return 1
     // If lookup fail and the bucket is full return 2
     // If lookup fail and the bucket is not full return 3
@@ -638,8 +632,8 @@ int VacuumFilter<fp_t, fp_len>::lookupIO_in_bucket(int pos, fp_t fp, const Bitwi
     return (isFull) ? 2 : 3;
 }
 
-template <typename fp_t, int fp_len>
-int VacuumFilter<fp_t, fp_len>::del_in_bucket(int pos, fp_t fp) {
+template <typename fp_t>
+int VacuumFilter<fp_t>::del_in_bucket(int pos, fp_t fp) {
     fp_t store[8];
     get_bucket(pos, store);
 
@@ -656,8 +650,8 @@ int VacuumFilter<fp_t, fp_len>::del_in_bucket(int pos, fp_t fp) {
     return 0;
 }
 
-template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
+template <typename fp_t>
+bool VacuumFilter<fp_t>::insert(uint64_t ele, uint16_t runid) {
     // If insert success return true
     // If insert fail return false
 
@@ -747,8 +741,8 @@ bool VacuumFilter<fp_t, fp_len>::insert(uint64_t ele, uint16_t runid) {
     return false;
 }
 
-template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::lookup(uint64_t ele) {
+template <typename fp_t>
+bool VacuumFilter<fp_t>::lookup(uint64_t ele) {
     // If ele is positive, return true
     // negative -- return false
 
@@ -766,8 +760,8 @@ bool VacuumFilter<fp_t, fp_len>::lookup(uint64_t ele) {
     return ok2 == 1;
 }
 
-template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::lookupIO(uint64_t ele, const Bitwise &key) {
+template <typename fp_t>
+bool VacuumFilter<fp_t>::lookupIO(uint64_t ele, const Bitwise &key) {
     // If ele is positive, return true
     // negative -- return false
 
@@ -785,8 +779,8 @@ bool VacuumFilter<fp_t, fp_len>::lookupIO(uint64_t ele, const Bitwise &key) {
     return ok2 == 1;
 }
 
-template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::del(uint64_t ele) {
+template <typename fp_t>
+bool VacuumFilter<fp_t>::del(uint64_t ele) {
     // If ele is positive, return true
     // negative -- return false
 
@@ -804,22 +798,17 @@ bool VacuumFilter<fp_t, fp_len>::del(uint64_t ele) {
     return ok2 == 1;
 }
 
-template <typename fp_t, int fp_len>
-VacuumFilter<fp_t, fp_len>::VacuumFilter(size_t nbits){
-    this->init(nbits / (fp_len - 1), 4, 2000);
-    // mt19937 gen(1337);
-    seed = rand(); //gen();
-}
-template <typename fp_t, int fp_len>
-VacuumFilter<fp_t, fp_len>::VacuumFilter(size_t nbits, function<bool (uint16_t, const Bitwise&)>* io_sim){
-    this->init(nbits / (fp_len - 1), 4, 2000);
+template <typename fp_t>
+VacuumFilter<fp_t>::VacuumFilter(size_t nbits, size_t nitems, function<bool (uint16_t, const Bitwise&)>* io_sim){
+    fp_len = min(max((int)ceil((double)nbits / nitems) + 1, 4), (int)sizeof(fp_t) * 8);
+    this->init(nitems, 4, 2000);
     seed = rand();
     this->io_sim_ = io_sim;
 }
 
 //+++ We need to make the 'max_item' to be the number of buckets
-template <typename fp_t, int fp_len>
-void VacuumFilter<fp_t, fp_len>::init(int max_item, int _m, int _step) {
+template <typename fp_t>
+void VacuumFilter<fp_t>::init(int max_item, int _m, int _step) {
     int _n = MAX((max_item / 0.96 / _m), 1);
 
     if (false && _n < 10000) {
@@ -870,15 +859,15 @@ void VacuumFilter<fp_t, fp_len>::init(int max_item, int _m, int _step) {
                 }
 }
 
-template <typename fp_t, int fp_len>
-void VacuumFilter<fp_t, fp_len>::clear() {
+template <typename fp_t>
+void VacuumFilter<fp_t>::clear() {
     this->filled_cell = 0;
     memset(this->T, 0, this->memory_consumption);
 }
 
 
-template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids){
+template <typename fp_t>
+bool VacuumFilter<fp_t>::AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids){
     for(int i = 0; i < keys.size(); i++)
         if(!this->insert(keys[i].hash(seed), runids[i])){
             std::cerr<<"Cuckoo Insert Failed\n";
@@ -888,8 +877,8 @@ bool VacuumFilter<fp_t, fp_len>::AddKeys(const vector<Bitwise> &keys, const vect
         }
     return true;
 }
-template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::AddKeys_len(const vector<Bitwise> &keys, const vector<uint16_t> & runids){
+template <typename fp_t>
+bool VacuumFilter<fp_t>::AddKeys_len(const vector<Bitwise> &keys, const vector<uint16_t> & runids){
     for(int i = 0; i < keys.size(); i++)
         if(!this->insert(keys[i].hash_len(seed), runids[i])){
             std::cerr<<"Cuckoo Insert Failed\n";
@@ -899,37 +888,37 @@ bool VacuumFilter<fp_t, fp_len>::AddKeys_len(const vector<Bitwise> &keys, const 
         }
     return true;
 }
-template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::Query(const Bitwise &key){
+template <typename fp_t>
+bool VacuumFilter<fp_t>::Query(const Bitwise &key){
     return this->lookup(key.hash(seed));
 }
-template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::QueryIO(const Bitwise &key){
+template <typename fp_t>
+bool VacuumFilter<fp_t>::QueryIO(const Bitwise &key){
     return this->lookupIO(key.hash(seed), key);
 }
-template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::Query_len(const Bitwise &key){
+template <typename fp_t>
+bool VacuumFilter<fp_t>::Query_len(const Bitwise &key){
     return this->lookup(key.hash_len(seed));
 }
-template <typename fp_t, int fp_len>
-bool VacuumFilter<fp_t, fp_len>::QueryIO_len(const Bitwise &key){
+template <typename fp_t>
+bool VacuumFilter<fp_t>::QueryIO_len(const Bitwise &key){
     return this->lookupIO(key.hash_len(seed), key);
 }
 
-template <typename fp_t, int fp_len>
-double VacuumFilter<fp_t, fp_len>::get_load_factor() {
+template <typename fp_t>
+double VacuumFilter<fp_t>::get_load_factor() {
     return filled_cell * 1.0 / this->n / this->m;
 }
-template <typename fp_t, int fp_len>
-double VacuumFilter<fp_t, fp_len>::get_bits_per_item() {
+template <typename fp_t>
+double VacuumFilter<fp_t>::get_bits_per_item() {
     return double(this->memory_consumption) * 8 / filled_cell;
 }
-template <typename fp_t, int fp_len>
-double VacuumFilter<fp_t, fp_len>::get_full_bucket_factor() {
+template <typename fp_t>
+double VacuumFilter<fp_t>::get_full_bucket_factor() {
     return full_bucket * 1.0 / this->n;
 }
-template <typename fp_t, int fp_len>
-size_t VacuumFilter<fp_t, fp_len>::mem() const{
+template <typename fp_t>
+size_t VacuumFilter<fp_t>::mem() const{
     return this->memory_consumption;
 }
 
@@ -993,14 +982,19 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys, const ve
         if(!bfs_[bf_max_]->AddKeys_len(ikeys[i]))
             return false;
     cks_.reserve(maxlen_);
-    for (size_t i=0; i<=ck_max_; ++i)
+    for (size_t i=0; i<ck_max_; ++i)
         if(ck_mask_ >> i & 1ull){
-            cks_.emplace_back(new FilterClass(nbits.second[i], &io_sim_));
+            cks_.emplace_back(new FilterClass(nbits.second[i], ldist[i], &io_sim_));
             if(!cks_[i]->AddKeys(lkeys[i].first, lkeys[i].second))
                 return false;
         }
         else
             cks_.emplace_back(nullptr);
+    for (size_t i=ck_max_; i<=ck_max_; ++i){
+        cks_.emplace_back(new FilterClass(nbits.second[i], std::accumulate(ldist.begin()+i, ldist.end(), 0), &io_sim_));
+        if(!cks_[i]->AddKeys(lkeys[i].first, lkeys[i].second))
+            return false;
+    }
     for (size_t i=ck_max_+1; i<maxlen_; ++i)
         if(!cks_[ck_max_]->AddKeys_len(lkeys[i].first, lkeys[i].second))
             return false;
@@ -1054,16 +1048,7 @@ size_t SplittedRosetta<FilterClass>::mem() const{
 }
 
 
-
-template class Rosetta<BloomFilter<false>, false>;
-template class Rosetta<BloomFilter<true>, true>;
-template class Rosetta<vacuum::VacuumFilter<uint32_t, 17>, false>;
-template class Rosetta<vacuum::VacuumFilter<uint32_t, 9>, false>;
-template class Rosetta<vacuum::VacuumFilter<uint32_t, 5>, false>;
-template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 17>>;
-template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 13>>;
-template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 9>>;
-template class SplittedRosetta<vacuum::VacuumFilter<uint32_t, 5>>;
+template class SplittedRosetta<vacuum::VacuumFilter<uint32_t>>;
 
 #ifdef USE_DTL
 template class Rosetta<DtlBlockedBloomFilter>;

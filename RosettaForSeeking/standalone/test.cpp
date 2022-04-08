@@ -1,7 +1,6 @@
 #include <bits/stdc++.h>
 #include "dst.h"
 
-#define CUCKOO_FP_LEN 12
 #define CUCKOO_MASK 0xfffffffff0000000ull
 #define CUCKOO_MAX_LAYER 28
 #define BLOOM_MAX_LAYER 34
@@ -93,7 +92,7 @@ void run(double totMem, int funcType, double funcPara){
         return correct = true;
     };
 
-    SplittedRosetta<vacuum::VacuumFilter<uint32_t, CUCKOO_FP_LEN + 1>> dst(64, BLOOM_MAX_LAYER, CUCKOO_MAX_LAYER, CUCKOO_MASK, func, io_sim);
+    SplittedRosetta<vacuum::VacuumFilter<uint32_t>> dst(64, BLOOM_MAX_LAYER, CUCKOO_MAX_LAYER, CUCKOO_MASK, func, io_sim);
 #else
     function<vector<size_t> (vector<size_t>)> func;
     if(funcType == 0)

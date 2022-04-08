@@ -375,11 +375,12 @@ double balls_in_bins_max_load(double balls, double bins);
 
 int proper_alt_range(int M, int i, int* len);
 
-template <typename fp_t, int fp_len>
+template <typename fp_t>
 class VacuumFilter final : public Filter {
 private:
     long long n;  // number of buckets
     int m;        // number of slots per bucket
+    int fp_len;
     uint64_t memory_consumption;
     int filled_cell;
     int full_bucket;
@@ -420,8 +421,7 @@ private:
     bool del(uint64_t ele);
 
 public:
-    VacuumFilter(size_t nbits);
-    VacuumFilter(size_t nbits, function<bool (uint16_t, const Bitwise&)>* io_sim);
+    VacuumFilter(size_t nbits, size_t nitems, function<bool (uint16_t, const Bitwise&)>* io_sim);
     ~VacuumFilter() { delete T; delete rid; }
 
     void init(int _n, int _m, int _max_kick_steps);
