@@ -10,9 +10,9 @@
 
 FILE* file;
 vector<uint64_t> key;
-vector<uint16_t> runid;
+vector<uint16_t> runid, lcp;
 vector<Bitwise> key_bit;
-vector<pair<uint64_t, uint16_t>> query;
+vector<pair<uint64_t, size_t>> query;
 
 uint64_t randu(){
     return (uint64_t) rand() << 62 ^ (uint64_t) rand() << 31 ^ (uint64_t) rand();
@@ -81,11 +81,16 @@ void run(double totMem, int funcType, double funcPara){
         return make_pair(idist, ldist);
     };
 #endif
-    uint16_t ans;
+    uint64_t from;
+    size_t ans;
     bool correct;
-    function<bool (uint16_t, const Bitwise&)> io_sim = [&ans, &io, &correct](uint16_t runid, const Bitwise& str) -> bool {
+    function<bool (uint16_t, const Bitwise&)> io_sim = [&](uint16_t rid, const Bitwise& prefix) -> bool {
         ++io;
-        return correct |= runid == ans;
+        // should be: find the only key in the rid-th run that has the expected prefix, and check the key >= from.
+        if(rid != runid[ans]) return false;
+        if(prefix.lcp(Bitwise(key_bit[ans], prefix.size())) < prefix.size()) return false;
+        if(prefix.size() <= lcp[ans]) return false;
+        return correct = true;
     };
 
     SplittedRosetta<vacuum::VacuumFilter<uint32_t, CUCKOO_FP_LEN + 1>> dst(64, BLOOM_MAX_LAYER, CUCKOO_MAX_LAYER, CUCKOO_MASK, func, io_sim);
@@ -138,12 +143,12 @@ void run(double totMem, int funcType, double funcPara){
     begin = clock();
 #ifndef UNSPLITTED
     for (size_t i = 0; i < query.size(); i++) {
-        uint64_t from = query[i].first;
+        from = query[i].first;
         ans = query[i].second;
         correct = false;
         auto res = dst.Seek(Bitwise(from));
         if(!correct){
-            printf("WRONG ANSWER! query id: %lu;  from: %lu, ans: %d\n", i, from, ans);
+            printf("WRONG ANSWER! query id: %lu;  from: %lu, ans: %lu\n", i, from, ans);
             throw std::runtime_error("False Negative");
             return;
         }
@@ -185,6 +190,7 @@ void test(string filename, size_t n, size_t run_n, double bpkMin, double bpkMax,
     key.clear();
     runid.clear();
     key_bit.clear();
+    lcp.clear();
     query.clear();
     for (size_t i=0; i<n; ++i)
         key.push_back(randu());
@@ -194,6 +200,11 @@ void test(string filename, size_t n, size_t run_n, double bpkMin, double bpkMax,
         runid.push_back(rand() % run_n);
     for (size_t i=0; i<key.size(); ++i)
         key_bit.push_back(key[i]);
+    for (size_t i=0, l1=0; i<key.size(); ++i){
+        size_t l2 = i + 1 < key.size() ? key_bit[i].lcp(key_bit[i + 1]) : 0;
+        lcp.push_back(max(l1, l2));
+        l1 = l2;
+    }
     for (size_t i=0; i<q; ++i) {
         uint64_t from = randu();
         auto it = lower_bound(key.begin(), key.end(), from) - key.begin();
@@ -201,7 +212,7 @@ void test(string filename, size_t n, size_t run_n, double bpkMin, double bpkMax,
             --i;
             continue;
         }
-        query.push_back(make_pair(from, runid[it]));
+        query.push_back(make_pair(from, it));
     }
 
     fprintf(file, "Insert Throughput (M/s), Query Throughput (M/s), Expected I/O Cost, BPK\nEvaluation:\n");
