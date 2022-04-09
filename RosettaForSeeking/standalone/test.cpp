@@ -132,11 +132,12 @@ void run(double totMem, int funcType, double funcPara){
     > dst(500, 25, func);
 #endif
 
+    fprintf(stderr, "Start Insert\n");
     begin = clock();
     if(!dst.AddKeys(key_bit, runid))
         return;
     end = clock();
-    std::cerr<<"Finish Insert\n";
+    fprintf(stderr, "Finish Insert\n");
     fprintf(file, "InsertTP %lf  ", (double)key.size()*CLOCKS_PER_SEC/1e6/(end-begin));
 
     begin = clock();
@@ -228,7 +229,7 @@ int main() {
     srand(1234);
     std::filesystem::create_directory("log");
 
-    test(/*"splitted_4bit_5e8"*/"", 1e8, 100, 14, 22, 0, 0);
+    test(""/*"splitted_5e8_l34"*/, 5e8, 100, 14, 22, 0, 0);
 
     return 0;
 }

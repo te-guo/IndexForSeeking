@@ -410,20 +410,10 @@ fp_t VacuumFilter<fp_t>::fingerprint(uint64_t ele) {
     return h;
 }
 
-uint64_t _random_seed = 0x8091a2b3c4d5e6f7;
-uint32_t hash_func3_32bit(uint32_t fp){
-	uint64_t h = fp ^ _random_seed;
-	h ^= h >> 16;
-	h *= 0x85ebca6b;
-	h ^= h >> 13;
-	h *= 0xc2b2ae35;
-	h ^= h >> 16;
-	return h;
-}
 template <typename fp_t>
 int VacuumFilter<fp_t>::alternate(int pos, fp_t fp)  // get alternate position
 {
-    uint32_t fp_hash = hash_func3_32bit(fp);
+    uint32_t fp_hash = fp * 0x5bd1e995;
     int seg = this->len[fp & 3];
     return pos ^ (fp_hash & seg);
 }
