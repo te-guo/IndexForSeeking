@@ -74,7 +74,7 @@ vector<size_t> calc_dst(vector<size_t> dist, double bpk, vector<size_t> qdist, s
 
 template<bool keep_stats>
 void BloomFilter<keep_stats>::init() {
-    nhf_ = (size_t)(round(log(2)*data_.size()/nkeys_));
+    nhf_ = nkeys_ > 0 ? (size_t)(round(log(2)*data_.size()/nkeys_)) : 0;
     nhf_ = (nhf_==0?1:nhf_);
     seeds_.resize(nhf_);
     mt19937 gen(1337);
@@ -799,7 +799,7 @@ VacuumFilter<fp_t>::VacuumFilter(size_t nbits, size_t nitems, function<bool (uin
 //+++ We need to make the 'max_item' to be the number of buckets
 template <typename fp_t>
 void VacuumFilter<fp_t>::init(int max_item, int _m, int _step) {
-    int _n = MAX((max_item / 0.96 / _m), 1);
+    int _n = MAX((max_item / 0.955 / _m), 1);
 
     if (false && _n < 10000) {
         if (_n < 256)

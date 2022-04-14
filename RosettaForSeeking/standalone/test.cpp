@@ -1,11 +1,13 @@
 #include <bits/stdc++.h>
 #include "dst.h"
+#include "util.h"
 
-#define CUCKOO_MASK 0xfffffffff0000000ull
-#define CUCKOO_MAX_LAYER 28
-#define BLOOM_MAX_LAYER 34
+#define BLOOM_MAX_LAYER 42
+#define CUCKOO_MAX_LAYER 42
+#define CUCKOO_MASK (~((1ull << CUCKOO_MAX_LAYER) - 1ull)) // 0xfffffffff0000000ull
 #define GUROBI
 // #define UNSPLITTED
+#define DATASET_PATH "/home/gt/Dataset/SOSD/lognormal_200M_uint64"
 
 FILE* file;
 vector<uint64_t> key;
@@ -72,11 +74,14 @@ void run(double totMem, int funcType, double funcPara){
                 ldist[i] = 0;
             }
         ldist[ck_max] = ceil(ldist[ck_max] * (log(4/gurobi_b[idx])/log(2)));
+        for(int i = 0; i <= bf_max; i++) if(idist[i] == 0) idist[i] = 1;
+        for(int i = 0; i <= ck_max; i++) if(ldist[i] == 0) ldist[i] = 1;
+        /*
         size_t mem = 0;
         for(auto &i: idist) mem += i;
         for(auto &i: ldist) mem += i;
-        for(auto &i: idist) i = ceil(i * totMem / mem);
-        for(auto &i: ldist) i = ceil(i * totMem / mem);
+        for(auto &i: idist) i = ceil((double)i * totMem / mem);
+        for(auto &i: ldist) i = ceil((double)i * totMem / mem);*/
         return make_pair(idist, ldist);
     };
 #endif
@@ -192,9 +197,13 @@ void test(string filename, size_t n, size_t run_n, double bpkMin, double bpkMax,
     key_bit.clear();
     lcp.clear();
     query.clear();
+#ifdef DATASET_PATH
+    key = util::load_data<uint64_t>(DATASET_PATH);
+#else
     for (size_t i=0; i<n; ++i)
         key.push_back(randu());
     sort(key.begin(), key.end());
+#endif
     key.erase(unique(key.begin(), key.end()), key.end());
     for (size_t i=0; i<key.size(); ++i)
         runid.push_back(rand() % run_n);
@@ -229,7 +238,7 @@ int main() {
     srand(1234);
     std::filesystem::create_directory("log");
 
-    test(""/*"splitted_5e8_l34"*/, 5e8, 100, 14, 22, 0, 0);
+    test("splitted_test", 2e8, 100, 14, 22, 0, 0);
 
     return 0;
 }

@@ -23,7 +23,7 @@ all: test # run_workload bloom
 #dst.h.gch: dst.h $(DTL_BASE)/lib$(DTL_LIBFILE).a
 #	g++ -Ofast -march=native -c dst.h -o dst.h.gch $(DTL_SUFFIX) -Wall -Wextra #-I../SuRF_standalone/SuRF/include/
 
-dst.o: dst.cpp dst.h MurmurHash3.o 
+dst.o: dst.cpp dst.h MurmurHash3.o util.h
 	g++ $(DSTOPT) -march=native -c dst.cpp --std=c++17 $(DTL_SUFFIX) -Wall -Wextra -I../SuRF_standalone/SuRF/include -g  -Wl,--stack=512000000
 
 MurmurHash3.o: MurmurHash3.cpp MurmurHash3.h
