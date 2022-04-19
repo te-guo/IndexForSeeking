@@ -43,13 +43,16 @@ void run(double totMem, string dataset_name, uint64_t cuckoo_mask){
     uint64_t from;
     size_t ans;
     bool correct;
-    function<bool (uint16_t, const Bitwise&)> io_sim = [&](uint16_t rid, const Bitwise& prefix) -> bool {
+    function<int (uint16_t, const Bitwise&)> io_sim = [&](uint16_t rid, const Bitwise& prefix) -> int {
         ++io;
         // should be: find the only key in the rid-th run that has the expected prefix, and check the key >= from.
-        if(rid != runid[ans]) return false;
-        if(prefix.lcp(Bitwise(key_bit[ans], prefix.size())) < prefix.size()) return false;
-        if(prefix.size() <= lcp[ans]) return false;
-        return correct = true;
+        if(rid == runid[ans]
+            && prefix.lcp(Bitwise(key_bit[ans], prefix.size())) >= prefix.size()
+            && prefix.size() > lcp[ans]) return correct = 1;
+        if(ans > 0 && rid == runid[ans - 1]
+            && prefix.lcp(Bitwise(key_bit[ans - 1], prefix.size())) >= prefix.size()
+            && prefix.size() > lcp[ans - 1]) return -1;
+        return 0;
     };
 
     SplittedRosetta<vacuum::VacuumFilter<uint32_t>> dst(64, BLOOM_MAX_LAYER, CUCKOO_MAX_LAYER, cuckoo_mask, func, io_sim);
@@ -113,12 +116,8 @@ void test(string filename_prefix, string dataset_name, size_t n, size_t run_n, d
         l1 = l2;
     }
     for (size_t i=0; i<q; ++i) {
-        uint64_t from = randu();
+        uint64_t from = key.back() == 0xffffffffffffffffULL ? randu() : randu() % (key.back() + 1ULL);
         auto it = lower_bound(key.begin(), key.end(), from) - key.begin();
-        if(it == key.size()){
-            --i;
-            continue;
-        }
         query.push_back(make_pair(from, it));
     }
 
@@ -136,12 +135,14 @@ int main() {
     srand(1234);
     std::filesystem::create_directory("log");
 
-    test(std::string("test-"), "books_200M_uint64", 2e8, 100, 18, 22, 0xfffffffff8000000ull);
-    // test(std::string("4-18-"), "books_200M_uint64", 2e8, 100, 14, 22, 0xfffffffff8000000ull);
-    // test(std::string("4-18-"), "normal_200M_uint64", 2e8, 100, 14, 22, 0xfffffffffc000000ull);
-    // test(std::string("4-18-"), "uniform_sparse_200M_uint64", 2e8, 100, 14, 22, 0xffffffffff000000ull);
-    // test(std::string("4-18-"), "osm_cellids_200M_uint64", 2e8, 100, 14, 22, 0xffffffff80000000ull);
-    // test(std::string("4-18-"), "lognormal_200M_uint64", 2e8, 100, 14, 22, 0xffffffc000000000ull);
+    test(std::string("4-19-"), "books_200M_uint64", 2e8, 100, 14, 22, 0xfffffffff8000000ull);
+    test(std::string("4-19-"), "normal_200M_uint64", 2e8, 100, 14, 22, 0xfffffffffc000000ull);
+    test(std::string("4-19-"), "uniform_sparse_200M_uint64", 2e8, 100, 14, 22, 0xffffffffff000000ull);
+    test(std::string("4-19-"), "osm_cellids_200M_uint64", 2e8, 100, 14, 22, 0xffffffff80000000ull);
+    test(std::string("4-19-"), "lognormal_200M_uint64", 2e8, 100, 14, 22, 0xffffffc000000000ull);
+    test(std::string("4-19-"), "fb_200M_uint64", 2e8, 100, 14, 22, 0xff80000000000000ull);
+    test(std::string("4-19-"), "wiki_ts_200M_uint64", 2e8, 100, 14, 22, 0xf800000000000000ull);
+    test(std::string("4-19-"), "uniform_dense_200M_uint64", 2e8, 100, 14, 22, 0x8000000000000000ull);
 
     return 0;
 }

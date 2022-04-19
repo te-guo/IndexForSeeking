@@ -668,11 +668,17 @@ int VacuumFilter<fp_t>::lookupIO_in_bucket(int pos, fp_t fp, const Bitwise& key)
     get_bucket(pos, store);
 
     int isFull = 1;
+    bool pre_ans = false;
     for (int i = 0; i < m; i++) {
         fp_t t = store[i];
-        if (t == fp && (*io_sim_)(rid[pos * m + i], key)) return 1;
+        if (t == fp){
+            int res = (*io_sim_)(rid[pos * m + i], key);
+            if(res == 1) return 1;
+            if(res == -1) pre_ans = true;
+        }
         isFull &= (t != 0);
     }
+    if(pre_ans) return -1;
     return (isFull) ? 2 : 3;
 }
 
@@ -805,7 +811,7 @@ bool VacuumFilter<fp_t>::lookup(uint64_t ele) {
 }
 
 template <typename fp_t>
-bool VacuumFilter<fp_t>::lookupIO(uint64_t ele, const Bitwise &key) {
+int VacuumFilter<fp_t>::lookupIO(uint64_t ele, const Bitwise &key) {
     // If ele is positive, return true
     // negative -- return false
 
@@ -814,13 +820,15 @@ bool VacuumFilter<fp_t>::lookupIO(uint64_t ele, const Bitwise &key) {
 
     int ok1 = lookupIO_in_bucket(pos1, fp, key);
 
-    if (ok1 == 1) return true;
+    if (ok1 == 1) return 1;
     // if (ok1 == 3) return false;
 
     int pos2 = alternate(pos1, fp);
     int ok2 = lookupIO_in_bucket(pos2, fp, key);
 
-    return ok2 == 1;
+    if (ok2 == 1) return 1;
+
+    return ok1 == -1 || ok2 == -1 ? -1 : 0;
 }
 
 template <typename fp_t>
@@ -843,7 +851,7 @@ bool VacuumFilter<fp_t>::del(uint64_t ele) {
 }
 
 template <typename fp_t>
-VacuumFilter<fp_t>::VacuumFilter(size_t nbits, size_t nitems, function<bool (uint16_t, const Bitwise&)>* io_sim){
+VacuumFilter<fp_t>::VacuumFilter(size_t nbits, size_t nitems, function<int (uint16_t, const Bitwise&)>* io_sim){
     fp_len = min(max((int)ceil((double)nbits / nitems) + 1, 4), (int)sizeof(fp_t) * 8);
     this->init(nitems, 4, 2000);
     seed = rand();
@@ -927,7 +935,7 @@ bool VacuumFilter<fp_t>::Query(const Bitwise &key){
     return this->lookup(key.hash(seed));
 }
 template <typename fp_t>
-bool VacuumFilter<fp_t>::QueryIO(const Bitwise &key){
+int VacuumFilter<fp_t>::QueryIO(const Bitwise &key){
     return this->lookupIO(key.hash(seed), key);
 }
 template <typename fp_t>
@@ -935,7 +943,7 @@ bool VacuumFilter<fp_t>::Query_len(const Bitwise &key){
     return this->lookup(key.hash_len(seed));
 }
 template <typename fp_t>
-bool VacuumFilter<fp_t>::QueryIO_len(const Bitwise &key){
+int VacuumFilter<fp_t>::QueryIO_len(const Bitwise &key){
     return this->lookupIO(key.hash_len(seed), key);
 }
 
@@ -1035,7 +1043,7 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys, const ve
 
 template<class FilterClass>
 bool SplittedRosetta<FilterClass>::Doubt(Bitwise *idx, size_t level) {
-    if (ck_mask_ >> level & 1ull && (level <= ck_max_ ? cks_[level]->QueryIO(Bitwise(*idx, level+1)) : cks_[ck_max_]->QueryIO_len(Bitwise(*idx, level + 1))))
+    if (ck_mask_ >> level & 1ull && (level <= ck_max_ ? cks_[level]->QueryIO(Bitwise(*idx, level+1)) : cks_[ck_max_]->QueryIO_len(Bitwise(*idx, level + 1))) == 1)
         return true;
     if (level >= maxlen_ - 1 || !(level <= bf_max_ ? bfs_[level]->Query(Bitwise(*idx, level+1)) : bfs_[bf_max_]->Query_len(Bitwise(*idx, level + 1))))
         return false;
@@ -1054,11 +1062,17 @@ Bitwise *SplittedRosetta<FilterClass>::Seek(const Bitwise &from) {
     bool carry = false;
     Bitwise *out = new Bitwise(tfrom.data(), tfrom.size()/8);
     int i;
-    for(i = 0; i < tfrom.size(); i++)
-        if(ck_mask_ >> i & 1ull && (i <= ck_max_ ? cks_[i]->QueryIO(Bitwise(*out, i+1)) : cks_[ck_max_]->QueryIO_len(Bitwise(*out, i + 1))))
-            return out;
-        else if(!(i <= bf_max_ ? bfs_[i]->Query(Bitwise(*out, i+1)) : bfs_[bf_max_]->Query_len(Bitwise(*out, i + 1))))
+    for(i = 0; i < tfrom.size(); i++){
+        if(ck_mask_ >> i & 1ull){
+            int res = i <= ck_max_ ? cks_[i]->QueryIO(Bitwise(*out, i+1)) : cks_[ck_max_]->QueryIO_len(Bitwise(*out, i + 1));
+            if(res == 1)
+                return out;
+            if(res == -1)
+                break;
+        }
+        if(!(i <= bf_max_ ? bfs_[i]->Query(Bitwise(*out, i+1)) : bfs_[bf_max_]->Query_len(Bitwise(*out, i + 1))))
             break;
+    }
     for(; i >= 0; i--)
         if(out->get(i) == 0){
             out->set(i, 1);

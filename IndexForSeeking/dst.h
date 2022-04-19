@@ -388,7 +388,7 @@ private:
 
     uint32_t* T;
     uint16_t* rid; // for simulation
-    function<bool (uint16_t, const Bitwise&)>* io_sim_;
+    function<int (uint16_t, const Bitwise&)>* io_sim_;
 
     int max_2_power;
     int big_seg;
@@ -419,11 +419,11 @@ private:
 
     bool insert(uint64_t ele, uint16_t runid);
     bool lookup(uint64_t ele);
-    bool lookupIO(uint64_t ele, const Bitwise &key);
+    int lookupIO(uint64_t ele, const Bitwise &key);
     bool del(uint64_t ele);
 
 public:
-    VacuumFilter(size_t nbits, size_t nitems, function<bool (uint16_t, const Bitwise&)>* io_sim);
+    VacuumFilter(size_t nbits, size_t nitems, function<int (uint16_t, const Bitwise&)>* io_sim);
     ~VacuumFilter() { delete T; delete rid; }
 
     void init(int _n, int _m, int _max_kick_steps);
@@ -432,9 +432,9 @@ public:
     bool AddKeys(const vector<Bitwise> &keys, const vector<uint16_t> & runids);
     bool AddKeys_len(const vector<Bitwise> &keys, const vector<uint16_t> & runids);
     bool Query(const Bitwise &key);
-    bool QueryIO(const Bitwise &key);
+    int QueryIO(const Bitwise &key);
     bool Query_len(const Bitwise &key);
-    bool QueryIO_len(const Bitwise &key);
+    int QueryIO_len(const Bitwise &key);
 
     double get_load_factor();
     double get_full_bucket_factor();
@@ -452,13 +452,13 @@ class SplittedRosetta final: public Filter {
         vector<BloomFilter<>*> bfs_;
         vector<FilterClass*> cks_;
         function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> get_nbits_;
-        function<bool (uint16_t, const Bitwise&)> io_sim_;
+        function<int (uint16_t, const Bitwise&)> io_sim_;
         uint64_t ck_mask_;
         size_t bf_max_, ck_max_;
 
     public:
 
-        SplittedRosetta(size_t maxlen, size_t bf_max, size_t ck_max, uint64_t ck_mask, function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> get_nbits, function<bool (uint16_t, const Bitwise&)> io_sim):
+        SplittedRosetta(size_t maxlen, size_t bf_max, size_t ck_max, uint64_t ck_mask, function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> get_nbits, function<int (uint16_t, const Bitwise&)> io_sim):
         maxlen_(maxlen), nkeys_(0), bf_max_(bf_max), ck_max_(ck_max), ck_mask_(ck_mask), get_nbits_(get_nbits), io_sim_(io_sim) {
             static_assert(is_base_of<Filter, FilterClass>::value, "DST template argument must be a filter");
         }
