@@ -382,7 +382,7 @@ double balls_in_bins_max_load(double balls, double bins) {
     return ret;
 }
 
-int proper_alt_range(int M, int i, int* len) {
+int proper_alt_range(int M, int i) {
     double b = 4;      // slots per bucket
     double lf = 0.95;  // target load factor
     int alt_range = 8;
@@ -435,20 +435,7 @@ inline void VacuumFilter<fp_t>::sort_pair(fp_t& a, fp_t& b) {
 }
 
 template <typename fp_t>
-void VacuumFilter<fp_t>::get_bucket(int pos, fp_t* store) {
-    // Default :
-    //
-    // Little Endian Store
-    // Store by uint32_t
-    // store[this -> m] = bucket number
-
-    // 1. read the endcoded bits from memory
-
-    int bucket_length = (fp_len - 1) * 4;
-    uint64_t start_bit_pos = (uint64_t)pos * bucket_length;
-    uint64_t end_bit_pos = start_bit_pos + bucket_length - 1;
-    uint64_t result = 0;
-
+void VacuumFilter<fp_t>::get_bits(uint64_t start_bit_pos, uint64_t end_bit_pos, uint64_t &result){
     if (ROUNDDOWN(start_bit_pos, 64) == ROUNDDOWN(end_bit_pos, 64)) {
         uint64_t unit = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64];
         int reading_lower_bound = start_bit_pos & 63;
@@ -464,42 +451,80 @@ void VacuumFilter<fp_t>::get_bucket(int pos, fp_t* store) {
         int reading_upper_bound = end_bit_pos & 63;
 
         uint64_t t1 = unit1 >> reading_lower_bound;
-        uint64_t t2 = (unit2 & ((1ULL << (reading_upper_bound + 1)) - 1))
+        uint64_t t2 = (unit2 & ((1ULL << (reading_upper_bound + 1)) - 1ULL))
                       << (64 - reading_lower_bound);
         result = t1 + t2;
     }
+}
+template <typename fp_t>
+void VacuumFilter<fp_t>::get_bucket(int pos, fp_t* store) {
+    if(fp_len > 15){
+        int bucket_length = (fp_len - 1) * 4;
+        uint64_t start_bit_pos = (uint64_t)pos * bucket_length;
+        uint64_t end_bit_pos = start_bit_pos + 11;
+        uint64_t result = 0;
 
-    // 2. read the 4 elements from the encoded bits
-    // We use 12 bits to store the 16 most significant bits for the items in
-    // bucket, 4 bits per item the low bits are stored in the remaining bits
-    //
-    // For example, 8 bits per item , require 28 bits to store:
-    //
-    // Original :
-    //
-    // hhhh llll
-    // hhhh llll
-    // hhhh llll
-    // hhhh llll
-    //
-    // encoded :
-    //
-    //
-    // 0 - 11                       12 - 15    16 - 19  20-23   24 - 27
-    // HHHHHHHHHHHH                 llll       llll     llll    llll
-    //  encoded high bit(12 bits)   item 0     item 1   item 2  item 3
-    //
-    int decode_result = decode_table[result >> (4 * (fp_len - 4))];
+        get_bits(start_bit_pos, end_bit_pos, result);
 
-    store[3] = (result & ((1 << (fp_len - 4)) - 1)) +
-               ((decode_result & ((1 << 4) - 1)) << (fp_len - 4));
-    store[2] = ((result >> (1 * (fp_len - 4))) & ((1 << (fp_len - 4)) - 1)) +
-               (((decode_result >> 4) & ((1 << 4) - 1)) << (fp_len - 4));
-    store[1] = ((result >> (2 * (fp_len - 4))) & ((1 << (fp_len - 4)) - 1)) +
-               (((decode_result >> 8) & ((1 << 4) - 1)) << (fp_len - 4));
-    store[0] = ((result >> (3 * (fp_len - 4))) & ((1 << (fp_len - 4)) - 1)) +
-               (((decode_result >> 12) & ((1 << 4) - 1)) << (fp_len - 4));
+        int decode_result = decode_table[result];
 
+        start_bit_pos = end_bit_pos + 1;
+        end_bit_pos = end_bit_pos + 2 * (fp_len - 4);
+        get_bits(start_bit_pos, end_bit_pos, result);
+        store[0] = (result >> fp_len - 4) + (((decode_result >> 12) & ((1ULL << 4) - 1ULL)) << (fp_len - 4));
+        store[1] = (result & (1ULL << fp_len - 4) - 1ULL) + (((decode_result >> 8) & ((1 << 4) - 1ULL)) << (fp_len - 4));
+        start_bit_pos = end_bit_pos + 1;
+        end_bit_pos = end_bit_pos + 2 * (fp_len - 4);
+        get_bits(start_bit_pos, end_bit_pos, result);
+        store[2] = (result >> fp_len - 4) + (((decode_result >> 4) & ((1ULL << 4) - 1ULL)) << (fp_len - 4));
+        store[3] = (result & (1ULL << fp_len - 4) - 1ULL) + ((decode_result & ((1 << 4) - 1ULL)) << (fp_len - 4));
+    } else {
+        // Default :
+        //
+        // Little Endian Store
+        // Store by uint32_t
+        // store[this -> m] = bucket number
+
+        // 1. read the endcoded bits from memory
+
+        int bucket_length = (fp_len - 1) * 4;
+        uint64_t start_bit_pos = (uint64_t)pos * bucket_length;
+        uint64_t end_bit_pos = start_bit_pos + bucket_length - 1;
+        uint64_t result = 0;
+
+        get_bits(start_bit_pos, end_bit_pos, result);
+
+        // 2. read the 4 elements from the encoded bits
+        // We use 12 bits to store the 16 most significant bits for the items in
+        // bucket, 4 bits per item the low bits are stored in the remaining bits
+        //
+        // For example, 8 bits per item , require 28 bits to store:
+        //
+        // Original :
+        //
+        // hhhh llll
+        // hhhh llll
+        // hhhh llll
+        // hhhh llll
+        //
+        // encoded :
+        //
+        //
+        // 0 - 11                       12 - 15    16 - 19  20-23   24 - 27
+        // HHHHHHHHHHHH                 llll       llll     llll    llll
+        //  encoded high bit(12 bits)   item 0     item 1   item 2  item 3
+        //
+        int decode_result = decode_table[result >> (4 * (fp_len - 4))];
+
+        store[3] = (result & ((1ULL << (fp_len - 4)) - 1ULL)) +
+                ((decode_result & ((1ULL << 4) - 1ULL)) << (fp_len - 4));
+        store[2] = ((result >> (1 * (fp_len - 4))) & ((1ULL << (fp_len - 4)) - 1ULL)) +
+                (((decode_result >> 4) & ((1ULL << 4) - 1ULL)) << (fp_len - 4));
+        store[1] = ((result >> (2 * (fp_len - 4))) & ((1ULL << (fp_len - 4)) - 1ULL)) +
+                (((decode_result >> 8) & ((1ULL << 4) - 1ULL)) << (fp_len - 4));
+        store[0] = ((result >> (3 * (fp_len - 4))) & ((1ULL << (fp_len - 4)) - 1ULL)) +
+                (((decode_result >> 12) & ((1ULL << 4) - 1ULL)) << (fp_len - 4));
+    }
     store[4] = 0;
     store[4] += store[0] != 0;
     store[4] += store[1] != 0;
@@ -509,6 +534,35 @@ void VacuumFilter<fp_t>::get_bucket(int pos, fp_t* store) {
 
 
 template <typename fp_t>
+void VacuumFilter<fp_t>::set_bits(uint64_t start_bit_pos, uint64_t end_bit_pos, uint64_t all_encode){
+    if (ROUNDDOWN(start_bit_pos, 64) == ROUNDDOWN(end_bit_pos, 64)) {
+        uint64_t unit = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64];
+        int writing_lower_bound = start_bit_pos & 63;
+        int writing_upper_bound = end_bit_pos & 63;
+
+        ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64] =
+            (unit & (((1ULL << writing_lower_bound) - 1ULL) +
+                     ((-1ULL) - ((-1ULL) >> (63 - writing_upper_bound))))) +
+            ((all_encode &
+              ((1ULL << (writing_upper_bound - writing_lower_bound + 1)) - 1ULL))
+             << writing_lower_bound);
+    } else {
+        uint64_t unit1 = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64];
+        uint64_t unit2 = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64 + 1];
+        int writing_lower_bound = start_bit_pos & 63;
+        int writing_upper_bound = end_bit_pos & 63;
+        uint64_t lower_part =
+            all_encode & ((1ULL << (64 - writing_lower_bound)) - 1ULL);
+        uint64_t higher_part = all_encode >> (64 - writing_lower_bound);
+        ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64] =
+            (unit1 & ((1ULL << writing_lower_bound) - 1ULL)) +
+            (lower_part << writing_lower_bound);
+        ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64 + 1] =
+            ((unit2 >> (writing_upper_bound + 1)) << (writing_upper_bound + 1)) +
+            higher_part;
+    }
+}
+template <typename fp_t>
 void VacuumFilter<fp_t>::set_bucket(int pos, fp_t* store) {
     // 0. sort store ! descendant order >>>>>>
     if(store[0] < store[2]) swap(store[0], store[2]), swap(rid[pos * m + 0], rid[pos * m + 2]);
@@ -517,58 +571,58 @@ void VacuumFilter<fp_t>::set_bucket(int pos, fp_t* store) {
     if(store[2] < store[3]) swap(store[2], store[3]), swap(rid[pos * m + 2], rid[pos * m + 3]);
     if(store[1] < store[2]) swap(store[1], store[2]), swap(rid[pos * m + 1], rid[pos * m + 2]);
 
-    // 1. compute the encode
+    if(fp_len > 15){
+        uint64_t high_bit = 0;
 
-    uint64_t high_bit = 0;
-    uint64_t low_bit = 0;
+        high_bit = ((store[3] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) +
+                (((store[2] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) << 4) +
+                (((store[1] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) << 8) +
+                (((store[0] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) << 12);
 
-    low_bit =
-        (store[3] & ((1 << (fp_len - 4)) - 1)) +
-        ((store[2] & ((1 << (fp_len - 4)) - 1)) << (1 * (fp_len - 4))) +
-        (((uint64_t)store[1] & ((1 << (fp_len - 4)) - 1)) << (2 * (fp_len - 4))) +
-        (((uint64_t)store[0] & ((1 << (fp_len - 4)) - 1)) << (3 * (fp_len - 4)));
+        uint64_t all_encode = encode_table[high_bit];
 
-    high_bit = ((store[3] >> (fp_len - 4)) & ((1 << 4) - 1)) +
-               (((store[2] >> (fp_len - 4)) & ((1 << 4) - 1)) << 4) +
-               (((store[1] >> (fp_len - 4)) & ((1 << 4) - 1)) << 8) +
-               (((store[0] >> (fp_len - 4)) & ((1 << 4) - 1)) << 12);
+        int bucket_length = (fp_len - 1) * 4;
+        uint64_t start_bit_pos = (uint64_t)pos * bucket_length;
+        uint64_t end_bit_pos = start_bit_pos + 11;
 
+        set_bits(start_bit_pos, end_bit_pos, all_encode);
 
-    // 2. store into memory
-    uint64_t high_encode = encode_table[high_bit];
-    uint64_t all_encode = (high_encode << (4 * (fp_len - 4))) + low_bit;
-
-    int bucket_length = (fp_len - 1) * 4;
-    uint64_t start_bit_pos = (uint64_t)pos * bucket_length;
-    uint64_t end_bit_pos = start_bit_pos + bucket_length - 1;
-
-    if (ROUNDDOWN(start_bit_pos, 64) == ROUNDDOWN(end_bit_pos, 64)) {
-        uint64_t unit = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64];
-        int writing_lower_bound = start_bit_pos & 63;
-        int writing_upper_bound = end_bit_pos & 63;
-
-        ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64] =
-            (unit & (((1ULL << writing_lower_bound) - 1) +
-                     ((-1ULL) - ((-1ULL) >> (63 - writing_upper_bound))))) +
-            ((all_encode &
-              ((1ULL << (writing_upper_bound - writing_lower_bound + 1)) - 1))
-             << writing_lower_bound);
+        start_bit_pos = end_bit_pos + 1;
+        end_bit_pos = end_bit_pos + 2 * (fp_len - 4);
+        all_encode = (store[0] & ((1ULL << (fp_len - 4)) - 1ULL)) << fp_len - 4 | (store[1] & ((1ULL << (fp_len - 4)) - 1ULL));
+        set_bits(start_bit_pos, end_bit_pos, all_encode);
+        start_bit_pos = end_bit_pos + 1;
+        end_bit_pos = end_bit_pos + 2 * (fp_len - 4);
+        all_encode = (store[2] & ((1ULL << (fp_len - 4)) - 1ULL)) << fp_len - 4 | (store[3] & ((1ULL << (fp_len - 4)) - 1ULL));
+        set_bits(start_bit_pos, end_bit_pos, all_encode);
     } else {
-        uint64_t unit1 = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64];
-        uint64_t unit2 = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64 + 1];
-        int writing_lower_bound = start_bit_pos & 63;
-        int writing_upper_bound = end_bit_pos & 63;
-        uint64_t lower_part =
-            all_encode & ((1LL << (64 - writing_lower_bound)) - 1);
-        uint64_t higher_part = all_encode >> (64 - writing_lower_bound);
-        ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64] =
-            (unit1 & ((1LL << writing_lower_bound) - 1)) +
-            (lower_part << writing_lower_bound);
-        ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64 + 1] =
-            ((unit2 >> (writing_upper_bound + 1)) << (writing_upper_bound + 1)) +
-            higher_part;
-    }
+        // 1. compute the encode
 
+        uint64_t high_bit = 0;
+        uint64_t low_bit = 0;
+
+        low_bit =
+            (store[3] & ((1ULL << (fp_len - 4)) - 1ULL)) +
+            ((store[2] & ((1ULL << (fp_len - 4)) - 1ULL)) << (1 * (fp_len - 4))) +
+            (((uint64_t)store[1] & ((1ULL << (fp_len - 4)) - 1ULL)) << (2 * (fp_len - 4))) +
+            (((uint64_t)store[0] & ((1ULL << (fp_len - 4)) - 1ULL)) << (3 * (fp_len - 4)));
+
+        high_bit = ((store[3] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) +
+                (((store[2] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) << 4) +
+                (((store[1] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) << 8) +
+                (((store[0] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) << 12);
+
+
+        // 2. store into memory
+        uint64_t high_encode = encode_table[high_bit];
+        uint64_t all_encode = (high_encode << (4 * (fp_len - 4))) + low_bit;
+
+        int bucket_length = (fp_len - 1) * 4;
+        uint64_t start_bit_pos = (uint64_t)pos * bucket_length;
+        uint64_t end_bit_pos = start_bit_pos + bucket_length - 1;
+
+        set_bits(start_bit_pos, end_bit_pos, all_encode);
+    }
 }
 
 
@@ -799,29 +853,15 @@ VacuumFilter<fp_t>::VacuumFilter(size_t nbits, size_t nitems, function<bool (uin
 //+++ We need to make the 'max_item' to be the number of buckets
 template <typename fp_t>
 void VacuumFilter<fp_t>::init(int max_item, int _m, int _step) {
-    int _n = MAX((max_item / 0.955 / _m), 1);
+    int _n = MAX(max_item / 0.95 / _m, 256);
 
-    if (false && _n < 10000) {
-        if (_n < 256)
-            big_seg = (upperpower2(_n));
-        else
-            big_seg = (upperpower2(_n / 4));
-        _n = ROUNDUP(_n, big_seg);
-        len[0] = big_seg - 1;
-        len[1] = big_seg - 1;
-        len[2] = big_seg - 1;
-        len[3] = big_seg - 1;
-    } else {
-        big_seg = 0;
-        big_seg = max(big_seg, proper_alt_range(_n, 0, len));
-        int new_n = ROUNDUP(_n, big_seg);
-        _n = new_n;
-
-        big_seg--;
-        len[0] = big_seg;
-        for (int i = 1; i < 4; i++) len[i] = proper_alt_range(_n, i, len) - 1;
-        len[3] = (len[3] + 1) * 2 - 1;
-    }
+    big_seg = proper_alt_range(_n, 0);
+    _n = ROUNDUP(_n, big_seg);
+    big_seg--;
+    len[0] = big_seg;
+    for (int i = 1; i < 4; i++) len[i] = proper_alt_range(_n, i) - 1;
+    len[3] = (len[3] + 1) * 2 - 1;
+    for (int i = 1; i < 4; i++) if(len[i] > _n) len[i] = big_seg;
 
     this->n = _n;
     this->m = _m;
@@ -863,6 +903,8 @@ bool VacuumFilter<fp_t>::AddKeys(const vector<Bitwise> &keys, const vector<uint1
             std::cerr<<"Cuckoo Insert Failed\n";
             std::cerr<<"- key length: "<<keys[i].size()<<std::endl;
             std::cerr<<"- load factor: "<<this->get_load_factor()<<std::endl;
+            std::cerr<<"- #keys: "<<keys.size()<<std::endl;
+            std::cerr<<"- #slots: "<<this->n * this->m<<std::endl;
             return false;
         }
     return true;
@@ -874,6 +916,8 @@ bool VacuumFilter<fp_t>::AddKeys_len(const vector<Bitwise> &keys, const vector<u
             std::cerr<<"Cuckoo Insert Failed\n";
             std::cerr<<"- key length: "<<keys[i].size()<<std::endl;
             std::cerr<<"- load factor: "<<this->get_load_factor()<<std::endl;
+            std::cerr<<"- #keys: "<<keys.size()<<std::endl;
+            std::cerr<<"- #slots: "<<this->n * this->m<<std::endl;
             return false;
         }
     return true;
@@ -957,31 +1001,29 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys, const ve
         lcp = lcp2;
     }
 
-    bfs_.reserve(maxlen_);
+    bfs_.resize(maxlen_);
     for (size_t i=0; i<bf_max_; ++i){
-        bfs_.emplace_back(new BloomFilter<>(nbits.first[i]));
+        bfs_[i] = new BloomFilter<>(nbits.first[i]);
         if(!bfs_[i]->AddKeys(ikeys[i]))
             return false;
     }
     for (size_t i=bf_max_; i<=bf_max_; ++i){
-        bfs_.emplace_back(new BloomFilter<>(nbits.first[i], std::accumulate(idist.begin()+i, idist.end(), 0)));
+        bfs_[i] = new BloomFilter<>(nbits.first[i], std::accumulate(idist.begin()+i, idist.end(), 0));
         if(!bfs_[i]->AddKeys(ikeys[i]))
             return false;
     }
     for (size_t i=bf_max_+1; i<maxlen_; ++i)
         if(!bfs_[bf_max_]->AddKeys_len(ikeys[i]))
             return false;
-    cks_.reserve(maxlen_);
+    cks_.resize(maxlen_);
     for (size_t i=0; i<ck_max_; ++i)
         if(ck_mask_ >> i & 1ull){
-            cks_.emplace_back(new FilterClass(nbits.second[i], ldist[i], &io_sim_));
+            cks_[i] = new FilterClass(nbits.second[i], ldist[i], &io_sim_);
             if(!cks_[i]->AddKeys(lkeys[i].first, lkeys[i].second))
                 return false;
         }
-        else
-            cks_.emplace_back(nullptr);
     for (size_t i=ck_max_; i<=ck_max_; ++i){
-        cks_.emplace_back(new FilterClass(nbits.second[i], std::accumulate(ldist.begin()+i, ldist.end(), 0), &io_sim_));
+        cks_[i] = new FilterClass(nbits.second[i], std::accumulate(ldist.begin()+i, ldist.end(), 0), &io_sim_);
         if(!cks_[i]->AddKeys(lkeys[i].first, lkeys[i].second))
             return false;
     }

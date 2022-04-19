@@ -373,7 +373,7 @@ double F(double x, double c);
 double solve_equation(double c);
 double balls_in_bins_max_load(double balls, double bins);
 
-int proper_alt_range(int M, int i, int* len);
+int proper_alt_range(int M, int i);
 
 template <typename fp_t>
 class VacuumFilter final : public Filter {
@@ -405,7 +405,9 @@ private:
     inline int high_bit(fp_t fp);
     inline int low_bit(fp_t fp);
     inline void sort_pair(fp_t& a, fp_t& b);
+    void get_bits(uint64_t start_bit_pos, uint64_t end_bit_pos, uint64_t &result);
     void get_bucket(int pos, fp_t* store);
+    void set_bits(uint64_t start_bit_pos, uint64_t end_bit_pos, uint64_t all_encode);
     void set_bucket(int pos, fp_t* sotre);
     void test_bucket();
     void make_balance();
