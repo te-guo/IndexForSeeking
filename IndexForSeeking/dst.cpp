@@ -436,16 +436,16 @@ inline void VacuumFilter<fp_t>::sort_pair(fp_t& a, fp_t& b) {
 
 template <typename fp_t>
 void VacuumFilter<fp_t>::get_bits(uint64_t start_bit_pos, uint64_t end_bit_pos, uint64_t &result){
-    if (ROUNDDOWN(start_bit_pos, 64) == ROUNDDOWN(end_bit_pos, 64)) {
-        uint64_t unit = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64];
+    if (start_bit_pos >> 6 == end_bit_pos >> 6) {
+        uint64_t unit = ((uint64_t*)T)[start_bit_pos >> 6];
         int reading_lower_bound = start_bit_pos & 63;
         int reading_upper_bound = end_bit_pos & 63;
 
         result = ((uint64_t)unit & ((-1ULL) >> (63 - reading_upper_bound))) >>
                  reading_lower_bound;
     } else {
-        uint64_t unit1 = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64];
-        uint64_t unit2 = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64 + 1];
+        uint64_t unit1 = ((uint64_t*)T)[start_bit_pos >> 6];
+        uint64_t unit2 = ((uint64_t*)T)[(start_bit_pos >> 6) + 1];
 
         int reading_lower_bound = start_bit_pos & 63;
         int reading_upper_bound = end_bit_pos & 63;
@@ -453,7 +453,7 @@ void VacuumFilter<fp_t>::get_bits(uint64_t start_bit_pos, uint64_t end_bit_pos, 
         uint64_t t1 = unit1 >> reading_lower_bound;
         uint64_t t2 = (unit2 & ((1ULL << (reading_upper_bound + 1)) - 1ULL))
                       << (64 - reading_lower_bound);
-        result = t1 + t2;
+        result = t1 | t2;
     }
 }
 template <typename fp_t>
@@ -461,23 +461,20 @@ void VacuumFilter<fp_t>::get_bucket(int pos, fp_t* store) {
     if(fp_len > 15){
         int bucket_length = (fp_len - 1) * 4;
         uint64_t start_bit_pos = (uint64_t)pos * bucket_length;
-        uint64_t end_bit_pos = start_bit_pos + 11;
+        uint64_t end_bit_pos = start_bit_pos + 11 + 2 * (fp_len - 4);
         uint64_t result = 0;
-
         get_bits(start_bit_pos, end_bit_pos, result);
 
-        int decode_result = decode_table[result];
+        int decode_result = decode_table[result >> 2 * (fp_len - 4)];
+        store[0] = (result >> fp_len - 4 & (1ULL << fp_len - 4) - 1ULL) | (((decode_result >> 12) & ((1ULL << 4) - 1ULL)) << (fp_len - 4));
+        store[1] = (result & (1ULL << fp_len - 4) - 1ULL) | (((decode_result >> 8) & ((1 << 4) - 1ULL)) << (fp_len - 4));
 
         start_bit_pos = end_bit_pos + 1;
         end_bit_pos = end_bit_pos + 2 * (fp_len - 4);
         get_bits(start_bit_pos, end_bit_pos, result);
-        store[0] = (result >> fp_len - 4) + (((decode_result >> 12) & ((1ULL << 4) - 1ULL)) << (fp_len - 4));
-        store[1] = (result & (1ULL << fp_len - 4) - 1ULL) + (((decode_result >> 8) & ((1 << 4) - 1ULL)) << (fp_len - 4));
-        start_bit_pos = end_bit_pos + 1;
-        end_bit_pos = end_bit_pos + 2 * (fp_len - 4);
-        get_bits(start_bit_pos, end_bit_pos, result);
-        store[2] = (result >> fp_len - 4) + (((decode_result >> 4) & ((1ULL << 4) - 1ULL)) << (fp_len - 4));
-        store[3] = (result & (1ULL << fp_len - 4) - 1ULL) + ((decode_result & ((1 << 4) - 1ULL)) << (fp_len - 4));
+
+        store[2] = (result >> fp_len - 4) | (((decode_result >> 4) & ((1ULL << 4) - 1ULL)) << (fp_len - 4));
+        store[3] = (result & (1ULL << fp_len - 4) - 1ULL) | ((decode_result & ((1 << 4) - 1ULL)) << (fp_len - 4));
     } else {
         // Default :
         //
@@ -535,30 +532,30 @@ void VacuumFilter<fp_t>::get_bucket(int pos, fp_t* store) {
 
 template <typename fp_t>
 void VacuumFilter<fp_t>::set_bits(uint64_t start_bit_pos, uint64_t end_bit_pos, uint64_t all_encode){
-    if (ROUNDDOWN(start_bit_pos, 64) == ROUNDDOWN(end_bit_pos, 64)) {
-        uint64_t unit = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64];
+    if (start_bit_pos >> 6 == end_bit_pos >> 6) {
+        uint64_t unit = ((uint64_t*)T)[start_bit_pos >> 6];
         int writing_lower_bound = start_bit_pos & 63;
         int writing_upper_bound = end_bit_pos & 63;
 
-        ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64] =
+        ((uint64_t*)T)[start_bit_pos >> 6] =
             (unit & (((1ULL << writing_lower_bound) - 1ULL) +
-                     ((-1ULL) - ((-1ULL) >> (63 - writing_upper_bound))))) +
+                     ((-1ULL) - ((-1ULL) >> (63 - writing_upper_bound))))) |
             ((all_encode &
               ((1ULL << (writing_upper_bound - writing_lower_bound + 1)) - 1ULL))
              << writing_lower_bound);
     } else {
-        uint64_t unit1 = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64];
-        uint64_t unit2 = ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64 + 1];
+        uint64_t unit1 = ((uint64_t*)T)[start_bit_pos >> 6];
+        uint64_t unit2 = ((uint64_t*)T)[(start_bit_pos >> 6) + 1];
         int writing_lower_bound = start_bit_pos & 63;
         int writing_upper_bound = end_bit_pos & 63;
         uint64_t lower_part =
             all_encode & ((1ULL << (64 - writing_lower_bound)) - 1ULL);
         uint64_t higher_part = all_encode >> (64 - writing_lower_bound);
-        ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64] =
-            (unit1 & ((1ULL << writing_lower_bound) - 1ULL)) +
+        ((uint64_t*)T)[start_bit_pos >> 6] =
+            (unit1 & ((1ULL << writing_lower_bound) - 1ULL)) |
             (lower_part << writing_lower_bound);
-        ((uint64_t*)T)[ROUNDDOWN(start_bit_pos, 64) / 64 + 1] =
-            ((unit2 >> (writing_upper_bound + 1)) << (writing_upper_bound + 1)) +
+        ((uint64_t*)T)[(start_bit_pos >> 6) + 1] =
+            ((unit2 >> (writing_upper_bound + 1)) << (writing_upper_bound + 1)) |
             higher_part;
     }
 }
@@ -572,27 +569,20 @@ void VacuumFilter<fp_t>::set_bucket(int pos, fp_t* store) {
     if(store[1] < store[2]) swap(store[1], store[2]), swap(rid[pos * m + 1], rid[pos * m + 2]);
 
     if(fp_len > 15){
-        uint64_t high_bit = 0;
+        int bucket_length = (fp_len - 1) * 4;
+        uint64_t start_bit_pos = (uint64_t)pos * bucket_length;
+        uint64_t end_bit_pos = start_bit_pos + 11 + 2 * (fp_len - 4);
 
-        high_bit = ((store[3] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) +
+        uint64_t high_bit = ((store[3] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) +
                 (((store[2] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) << 4) +
                 (((store[1] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) << 8) +
                 (((store[0] >> (fp_len - 4)) & ((1ULL << 4) - 1ULL)) << 12);
-
-        uint64_t all_encode = encode_table[high_bit];
-
-        int bucket_length = (fp_len - 1) * 4;
-        uint64_t start_bit_pos = (uint64_t)pos * bucket_length;
-        uint64_t end_bit_pos = start_bit_pos + 11;
-
+        uint64_t all_encode = (uint64_t)encode_table[high_bit] << 2 * (fp_len - 4) | (store[0] & ((1ULL << (fp_len - 4)) - 1ULL)) << fp_len - 4 | (store[1] & ((1ULL << (fp_len - 4)) - 1ULL));
         set_bits(start_bit_pos, end_bit_pos, all_encode);
 
         start_bit_pos = end_bit_pos + 1;
         end_bit_pos = end_bit_pos + 2 * (fp_len - 4);
-        all_encode = (store[0] & ((1ULL << (fp_len - 4)) - 1ULL)) << fp_len - 4 | (store[1] & ((1ULL << (fp_len - 4)) - 1ULL));
-        set_bits(start_bit_pos, end_bit_pos, all_encode);
-        start_bit_pos = end_bit_pos + 1;
-        end_bit_pos = end_bit_pos + 2 * (fp_len - 4);
+
         all_encode = (store[2] & ((1ULL << (fp_len - 4)) - 1ULL)) << fp_len - 4 | (store[3] & ((1ULL << (fp_len - 4)) - 1ULL));
         set_bits(start_bit_pos, end_bit_pos, all_encode);
     } else {
@@ -852,7 +842,7 @@ bool VacuumFilter<fp_t>::del(uint64_t ele) {
 
 template <typename fp_t>
 VacuumFilter<fp_t>::VacuumFilter(size_t nbits, size_t nitems, function<int (uint16_t, const Bitwise&)>* io_sim){
-    fp_len = min(max((int)ceil((double)nbits / nitems) + 1, 4), (int)sizeof(fp_t) * 8);
+    fp_len = min(max((int)ceil((double)nbits / nitems) + 1, 4), min((int)sizeof(fp_t) * 8, 30));
     this->init(nitems, 4, 2000);
     seed = rand();
     this->io_sim_ = io_sim;
@@ -913,6 +903,7 @@ bool VacuumFilter<fp_t>::AddKeys(const vector<Bitwise> &keys, const vector<uint1
             std::cerr<<"- load factor: "<<this->get_load_factor()<<std::endl;
             std::cerr<<"- #keys: "<<keys.size()<<std::endl;
             std::cerr<<"- #slots: "<<this->n * this->m<<std::endl;
+            std::cerr<<"- fp_len: "<<this->fp_len<<std::endl;
             return false;
         }
     return true;
@@ -926,6 +917,7 @@ bool VacuumFilter<fp_t>::AddKeys_len(const vector<Bitwise> &keys, const vector<u
             std::cerr<<"- load factor: "<<this->get_load_factor()<<std::endl;
             std::cerr<<"- #keys: "<<keys.size()<<std::endl;
             std::cerr<<"- #slots: "<<this->n * this->m<<std::endl;
+            std::cerr<<"- fp_len: "<<this->fp_len<<std::endl;
             return false;
         }
     return true;
