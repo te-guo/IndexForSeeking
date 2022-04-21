@@ -384,7 +384,7 @@ double balls_in_bins_max_load(double balls, double bins) {
 
 int proper_alt_range(int M, int i) {
     double b = 4;      // slots per bucket
-    double lf = 0.95;  // target load factor
+    double lf = 0.945;  // target load factor
     int alt_range = 8;
     for (; alt_range < M;) {
         double f = (4 - i) * 0.25;
@@ -851,7 +851,7 @@ VacuumFilter<fp_t>::VacuumFilter(size_t nbits, size_t nitems, function<int (uint
 //+++ We need to make the 'max_item' to be the number of buckets
 template <typename fp_t>
 void VacuumFilter<fp_t>::init(int max_item, int _m, int _step) {
-    int _n = MAX(max_item / 0.95 / _m, 256);
+    int _n = MAX(max_item / 0.945 / _m, 256);
 
     big_seg = proper_alt_range(_n, 0);
     _n = ROUNDUP(_n, big_seg);
@@ -900,10 +900,11 @@ bool VacuumFilter<fp_t>::AddKeys(const vector<Bitwise> &keys, const vector<uint1
         if(!this->insert(keys[i].hash(seed), runids[i])){
             std::cerr<<"Cuckoo Insert Failed\n";
             std::cerr<<"- key length: "<<keys[i].size()<<std::endl;
+            std::cerr<<"- fp_len: "<<this->fp_len<<std::endl;
+            std::cerr<<"- #slots: "<<this->n * this->m<<std::endl;
             std::cerr<<"- load factor: "<<this->get_load_factor()<<std::endl;
             std::cerr<<"- #keys: "<<keys.size()<<std::endl;
-            std::cerr<<"- #slots: "<<this->n * this->m<<std::endl;
-            std::cerr<<"- fp_len: "<<this->fp_len<<std::endl;
+            std::cerr<<"- added key factor: "<<(double)i / keys.size()<<std::endl;
             return false;
         }
     return true;
@@ -913,11 +914,6 @@ bool VacuumFilter<fp_t>::AddKeys_len(const vector<Bitwise> &keys, const vector<u
     for(int i = 0; i < keys.size(); i++)
         if(!this->insert(keys[i].hash_len(seed), runids[i])){
             std::cerr<<"Cuckoo Insert Failed\n";
-            std::cerr<<"- key length: "<<keys[i].size()<<std::endl;
-            std::cerr<<"- load factor: "<<this->get_load_factor()<<std::endl;
-            std::cerr<<"- #keys: "<<keys.size()<<std::endl;
-            std::cerr<<"- #slots: "<<this->n * this->m<<std::endl;
-            std::cerr<<"- fp_len: "<<this->fp_len<<std::endl;
             return false;
         }
     return true;
@@ -971,29 +967,22 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys, const ve
     lkeys.resize(maxlen_);
     for (size_t i = 0, lcp = 0; i<nkeys_; ++i) {
         size_t lcp2 = i + 1 < nkeys_ ? keys[i].lcp(keys[i + 1]) : 0;
-        size_t ck_pos = max(lcp, lcp2);
-        while(!(ck_mask_ >> ck_pos & 1ull))
-            ck_pos++;
+        size_t ck_pos = min(max(max(lcp, lcp2) + shift_, padding_), maxlen_ - 1);
         for (size_t j = lcp; j < ck_pos; ++j)
             ++idist[j];
         ++ldist[ck_pos];
         lcp = lcp2;
     }
-    pair<vector<size_t>, vector<size_t>> nbits = get_nbits_(idist, ldist, bf_max_, ck_max_, ck_mask_);
+    pair<vector<size_t>, vector<size_t>> nbits = get_nbits_(idist, ldist);
 
     for (size_t i=0; i<maxlen_; ++i){
-        if (nbits.first[i] > 0)
-            ikeys[i].reserve(idist[i]);
-        if (nbits.second[i] > 0){
-            lkeys[i].first.reserve(ldist[i]);
-            lkeys[i].second.reserve(ldist[i]);
-        }
+        ikeys[i].reserve(idist[i]);
+        lkeys[i].first.reserve(ldist[i]);
+        lkeys[i].second.reserve(ldist[i]);
     }
     for (size_t i = 0, lcp = 0; i<nkeys_; ++i) {
         size_t lcp2 = i + 1 < nkeys_ ? keys[i].lcp(keys[i + 1]) : 0;
-        size_t ck_pos = max(lcp, lcp2);
-        while(!(ck_mask_ >> ck_pos & 1ull))
-            ck_pos++;
+        size_t ck_pos = min(max(max(lcp, lcp2) + shift_, padding_), maxlen_ - 1);
         for (size_t j = lcp; j < ck_pos; ++j)
             ikeys[j].emplace_back(Bitwise(keys[i], j + 1));
         lkeys[ck_pos].first.emplace_back(Bitwise(keys[i], ck_pos + 1));
@@ -1002,42 +991,27 @@ bool SplittedRosetta<FilterClass>::AddKeys(const vector<Bitwise> &keys, const ve
     }
 
     bfs_.resize(maxlen_);
-    for (size_t i=0; i<bf_max_; ++i){
-        bfs_[i] = new BloomFilter<>(nbits.first[i]);
-        if(!bfs_[i]->AddKeys(ikeys[i]))
-            return false;
-    }
-    for (size_t i=bf_max_; i<=bf_max_; ++i){
-        bfs_[i] = new BloomFilter<>(nbits.first[i], std::accumulate(idist.begin()+i, idist.end(), 0));
-        if(!bfs_[i]->AddKeys(ikeys[i]))
-            return false;
-    }
-    for (size_t i=bf_max_+1; i<maxlen_; ++i)
-        if(!bfs_[bf_max_]->AddKeys_len(ikeys[i]))
-            return false;
     cks_.resize(maxlen_);
-    for (size_t i=0; i<ck_max_; ++i)
-        if(ck_mask_ >> i & 1ull){
+    for (size_t i=0; i<maxlen_; ++i){
+        if(nbits.first[i]){
+            bfs_[i] = new BloomFilter<>(nbits.first[i]);
+            if(!bfs_[i]->AddKeys(ikeys[i]))
+                return false;
+        }
+        if(nbits.second[i]){
             cks_[i] = new FilterClass(nbits.second[i], ldist[i], &io_sim_);
             if(!cks_[i]->AddKeys(lkeys[i].first, lkeys[i].second))
                 return false;
         }
-    for (size_t i=ck_max_; i<=ck_max_; ++i){
-        cks_[i] = new FilterClass(nbits.second[i], std::accumulate(ldist.begin()+i, ldist.end(), 0), &io_sim_);
-        if(!cks_[i]->AddKeys(lkeys[i].first, lkeys[i].second))
-            return false;
     }
-    for (size_t i=ck_max_+1; i<maxlen_; ++i)
-        if(!cks_[ck_max_]->AddKeys_len(lkeys[i].first, lkeys[i].second))
-            return false;
     return true;
 }
 
 template<class FilterClass>
 bool SplittedRosetta<FilterClass>::Doubt(Bitwise *idx, size_t level) {
-    if (ck_mask_ >> level & 1ull && (level <= ck_max_ ? cks_[level]->QueryIO(Bitwise(*idx, level+1)) : cks_[ck_max_]->QueryIO_len(Bitwise(*idx, level + 1))) == 1)
+    if (cks_[level] != nullptr && cks_[level]->QueryIO(Bitwise(*idx, level+1)) == 1)
         return true;
-    if (level >= maxlen_ - 1 || !(level <= bf_max_ ? bfs_[level]->Query(Bitwise(*idx, level+1)) : bfs_[bf_max_]->Query_len(Bitwise(*idx, level + 1))))
+    if (bfs_[level] == nullptr || !bfs_[level]->Query(Bitwise(*idx, level+1)))
         return false;
     idx->set(level+1, 0);
     if (Doubt(idx, level+1))
@@ -1055,14 +1029,14 @@ Bitwise *SplittedRosetta<FilterClass>::Seek(const Bitwise &from) {
     Bitwise *out = new Bitwise(tfrom.data(), tfrom.size()/8);
     int i;
     for(i = 0; i < tfrom.size(); i++){
-        if(ck_mask_ >> i & 1ull){
-            int res = i <= ck_max_ ? cks_[i]->QueryIO(Bitwise(*out, i+1)) : cks_[ck_max_]->QueryIO_len(Bitwise(*out, i + 1));
+        if(cks_[i] != nullptr){
+            int res = cks_[i]->QueryIO(Bitwise(*out, i+1));
             if(res == 1)
                 return out;
             if(res == -1)
                 break;
         }
-        if(!(i <= bf_max_ ? bfs_[i]->Query(Bitwise(*out, i+1)) : bfs_[bf_max_]->Query_len(Bitwise(*out, i + 1))))
+        if(bfs_[i] == nullptr || !bfs_[i]->Query(Bitwise(*out, i+1)))
             break;
     }
     for(; i >= 0; i--)
@@ -1078,7 +1052,8 @@ template<class FilterClass>
 size_t SplittedRosetta<FilterClass>::mem() const{
     size_t s = sizeof(*this);
     for(auto &b: bfs_)
-        s += b->mem();
+        if(b != nullptr)
+            s += b->mem();
     for(auto &c: cks_)
         if(c != nullptr)
             s += c->mem();

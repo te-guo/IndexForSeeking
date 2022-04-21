@@ -451,15 +451,14 @@ class SplittedRosetta final: public Filter {
         size_t maxlen_, nkeys_;
         vector<BloomFilter<>*> bfs_;
         vector<FilterClass*> cks_;
-        function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> get_nbits_;
+        function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>)> get_nbits_;
         function<int (uint16_t, const Bitwise&)> io_sim_;
-        uint64_t ck_mask_;
-        size_t bf_max_, ck_max_;
+        size_t shift_, padding_;
 
     public:
 
-        SplittedRosetta(size_t maxlen, size_t bf_max, size_t ck_max, uint64_t ck_mask, function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> get_nbits, function<int (uint16_t, const Bitwise&)> io_sim):
-        maxlen_(maxlen), nkeys_(0), bf_max_(bf_max), ck_max_(ck_max), ck_mask_(ck_mask), get_nbits_(get_nbits), io_sim_(io_sim) {
+        SplittedRosetta(size_t maxlen, size_t shift, size_t padding, function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>)> get_nbits, function<int (uint16_t, const Bitwise&)> io_sim):
+        maxlen_(maxlen), nkeys_(0), shift_(shift), padding_(padding), get_nbits_(get_nbits), io_sim_(io_sim) {
             static_assert(is_base_of<Filter, FilterClass>::value, "DST template argument must be a filter");
         }
         ~SplittedRosetta(){

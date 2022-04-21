@@ -2,10 +2,8 @@
 #include "dst.h"
 #include "util.h"
 
-#define BLOOM_MAX_LAYER 63
-#define CUCKOO_MAX_LAYER 63
 #define DATASET_PATH std::string("/home/gt/Dataset/SOSD/data/")
-#define CONFIG_PATH std::string("/home/gt/Dataset/SOSD/fpr_opt/")
+#define CONFIG_PATH std::string("/home/gt/Dataset/SOSD/fpr_offset/")
 
 FILE* file;
 vector<uint64_t> key;
@@ -17,26 +15,37 @@ uint64_t randu(){
     return (uint64_t) rand() << 62 ^ (uint64_t) rand() << 31 ^ (uint64_t) rand();
 }
 
-void run(double totMem, string dataset_name, uint64_t cuckoo_mask){
+void run(double totMem, string dataset_name){
     clock_t begin, end;
-    size_t io = 0;
-    function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>, size_t, size_t, uint64_t)> func;
+    size_t io = 0, io_hash = 0;
+    function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>)> func;
     vector<double> bpn_bf, bpn_ck;
+    size_t shift = 0, padding = 0;
     {
         std::ifstream file((CONFIG_PATH + to_string((int)round(totMem / key.size())) + '_' + dataset_name).c_str(), std::ifstream::in);
         string token;
         for(bool bf = true; file >> token;)
             if(token == "@bpn"){
-                file >> token >> token;
+                file >> token; if(token != "=") continue;
+                file >> token;
                 (bf ? bpn_bf : bpn_ck).push_back(stof(token));
                 bf = !bf;
             }
+            else if(token == "Shifting"){
+                file >> token; if(token != "Down:") continue;
+                file >> token;
+                shift = atoi(token.c_str());
+            }
+            else if(token == "Padding:"){
+                file >> token;
+                padding = atoi(token.c_str()) - 1;
+            }
         file.close();
     }
-    func = [totMem, &bpn_bf, &bpn_ck](vector<size_t> idist, vector<size_t> ldist, size_t bf_max, size_t ck_max, uint64_t ck_mask) -> pair<vector<size_t>, vector<size_t>> {
+    func = [totMem, &bpn_bf, &bpn_ck](vector<size_t> idist, vector<size_t> ldist) -> pair<vector<size_t>, vector<size_t>> {
         for(int i = 0; i < 64; i++){
-            idist[i] = max(idist[i] * bpn_bf[i + 1], 1.);
-            ldist[i] = max(ldist[i] * bpn_ck[i + 1], 1.);
+            idist[i] = ceil(idist[i] * bpn_bf[i + 1]);
+            ldist[i] = ceil(ldist[i] * bpn_ck[i + 1]);
         }
         return make_pair(idist, ldist);
     };
@@ -52,10 +61,11 @@ void run(double totMem, string dataset_name, uint64_t cuckoo_mask){
         if(ans > 0 && rid == runid[ans - 1]
             && prefix.lcp(Bitwise(key_bit[ans - 1], prefix.size())) >= prefix.size()
             && prefix.size() > lcp[ans - 1]) return -1;
+        ++io_hash;
         return 0;
     };
 
-    SplittedRosetta<vacuum::VacuumFilter<uint32_t>> dst(64, BLOOM_MAX_LAYER, CUCKOO_MAX_LAYER, cuckoo_mask, func, io_sim);
+    SplittedRosetta<vacuum::VacuumFilter<uint32_t>> dst(64, shift, padding, func, io_sim);
 
     fprintf(stderr, "Start Insert\n");
     begin = clock();
@@ -82,12 +92,13 @@ void run(double totMem, string dataset_name, uint64_t cuckoo_mask){
 
     fprintf(file, "QueryTP %lf  ", (double)query.size()*CLOCKS_PER_SEC/1e6/(end-begin));
     fprintf(file, "IO %lf  ", (double)io/query.size());
+    fprintf(file, "IO_hash %lf  ", (double)io_hash/query.size());
     fprintf(file, "BPK %lf  ", (double)dst.mem() * 8 / key.size());
     fprintf(file, "expectedBPK %lf  ", (double)totMem / key.size());
     fprintf(file, "\n");
     fflush(file);
 }
-void test(string filename_prefix, string dataset_name, size_t n, size_t run_n, double bpkMin, double bpkMax, uint64_t cuckoo_mask){
+void test(string filename_prefix, string dataset_name, size_t n, size_t run_n, double bpkMin, double bpkMax){
     // Obtain a BPK - I/O cost image
 
     file = filename_prefix == "" ? stdout : fopen(("./log/" + filename_prefix + dataset_name + ".txt").c_str(), "w");
@@ -123,7 +134,7 @@ void test(string filename_prefix, string dataset_name, size_t n, size_t run_n, d
 
     fprintf(file, "Insert Throughput (M/s), Query Throughput (M/s), Expected I/O Cost, BPK\nEvaluation:\n");
     for(double bpk=bpkMin, step=1; bpk <= bpkMax + 1e-6; bpk += step){
-        run(bpk * key.size(), dataset_name, cuckoo_mask);
+        run(bpk * key.size(), dataset_name);
         fprintf(stderr, "Done [n = %lu, bpk = %lf]\n", n, bpk);
         step = 2; // step = bpk * (pow(2, 0.1) - 1); // set step
     }
@@ -135,14 +146,14 @@ int main() {
     srand(1234);
     std::filesystem::create_directory("log");
 
-    test(std::string("4-19-"), "books_200M_uint64", 2e8, 100, 14, 22, 0xfffffffff8000000ull);
-    test(std::string("4-19-"), "normal_200M_uint64", 2e8, 100, 14, 22, 0xfffffffffc000000ull);
-    test(std::string("4-19-"), "uniform_sparse_200M_uint64", 2e8, 100, 14, 22, 0xffffffffff000000ull);
-    test(std::string("4-19-"), "osm_cellids_200M_uint64", 2e8, 100, 14, 22, 0xffffffff80000000ull);
-    test(std::string("4-19-"), "lognormal_200M_uint64", 2e8, 100, 14, 22, 0xffffffc000000000ull);
-    test(std::string("4-19-"), "fb_200M_uint64", 2e8, 100, 14, 22, 0xff80000000000000ull);
-    test(std::string("4-19-"), "wiki_ts_200M_uint64", 2e8, 100, 14, 22, 0xf800000000000000ull);
-    test(std::string("4-19-"), "uniform_dense_200M_uint64", 2e8, 100, 14, 22, 0x8000000000000000ull);
+    // test(std::string("4-21-"), "books_200M_uint64", 2e8, 100, 12, 22);
+    // test(std::string("4-21-"), "normal_200M_uint64", 2e8, 100, 12, 22);
+    // test(std::string("4-21-"), "uniform_sparse_200M_uint64", 2e8, 100, 12, 22);
+    // test(std::string("4-21-"), "osm_cellids_200M_uint64", 2e8, 100, 12, 22);
+    // test(std::string("4-21-"), "lognormal_200M_uint64", 2e8, 100, 12, 22);
+    // test(std::string("4-21-"), "fb_200M_uint64", 2e8, 100, 12, 22);
+    // test(std::string("4-21-"), "wiki_ts_200M_uint64", 2e8, 100, 12, 22);
+    // test(std::string("4-21-"), "uniform_dense_200M_uint64", 2e8, 100, 12, 22);
 
     return 0;
 }
