@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
+
+namespace util {
 #define ROW_WIDTH 1
 
 //#define PRINT_ERRORS
@@ -38,8 +40,6 @@ struct SearchBound {
   size_t start;
   size_t stop;
 };
-
-namespace util {
 
 const static uint64_t NOT_FOUND = std::numeric_limits<uint64_t>::max();
 
@@ -235,3 +235,55 @@ class FastRandom {
 };
 
 }  // namespace util
+
+namespace zipf{
+  static double c = 0;          // Normalization constant
+  static double *sum_probs = nullptr;     // Pre-calculated sum of probabilities
+  static int n = 0;
+
+  void init(double alpha, int n_){
+    n = n_;
+    // Compute normalization constant on first call only
+    c = 0;
+    for (int i=1; i<=n; i++)
+      c = c + (1.0 / pow((double) i, alpha));
+    c = 1.0 / c;
+
+    delete sum_probs;
+    sum_probs = new double[n+1];
+    sum_probs[0] = 0;
+    for (int i=1; i<=n; i++) {
+      sum_probs[i] = sum_probs[i-1] + c / pow((double) i, alpha);
+    }
+  }
+  int zipf(){
+    double z;                     // Uniform random number (0 < z < 1)
+    int zipf_value;               // Computed exponential value to be returned
+
+    // Pull a uniform random number (0 < z < 1)
+    do
+    {
+      z = (double)rand() / RAND_MAX;
+    }
+    while ((z == 0) || (z == 1));
+
+    // Map z to the value
+    int low = 1, high = n, mid;
+    do {
+      mid = floor((low+high)/2);
+      if (sum_probs[mid] >= z && sum_probs[mid-1] < z) {
+        zipf_value = mid;
+        break;
+      } else if (sum_probs[mid] >= z) {
+        high = mid-1;
+      } else {
+        low = mid+1;
+      }
+    } while (low <= high);
+
+    // Assert that zipf_value is between 1 and N
+    assert((zipf_value >=1) && (zipf_value <= n));
+
+    return(zipf_value);
+  }
+}

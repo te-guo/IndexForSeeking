@@ -875,16 +875,18 @@ void VacuumFilter<fp_t>::init(int max_item, int _m, int _step) {
     this->T = new uint32_t[this->memory_consumption / sizeof(uint32_t)]();
     this->rid = new uint16_t[this->n * this->m]();
 
-    int index = 0;
-    for (int i = 0; i < 16; i++)
-        for (int j = 0; j < ((i == 0) ? 1 : i + 1); j++)
-            for (int k = 0; k < ((j == 0) ? 1 : j + 1); k++)
-                for (int l = 0; l < ((k == 0) ? 1 : k + 1); l++) {
-                    int plain_bit = (i << 12) + (j << 8) + (k << 4) + l;
-                    encode_table[plain_bit] = index;
-                    decode_table[index] = plain_bit;
-                    ++index;
-                }
+    if(decode_table[1] == 0){
+        int index = 0;
+        for (int i = 0; i < 16; i++)
+            for (int j = 0; j <= i; j++)
+                for (int k = 0; k <= j; k++)
+                    for (int l = 0; l <= k; l++) {
+                        int plain_bit = (i << 12) + (j << 8) + (k << 4) + l;
+                        encode_table[plain_bit] = index;
+                        decode_table[index] = plain_bit;
+                        ++index;
+                    }
+    }
 }
 
 template <typename fp_t>

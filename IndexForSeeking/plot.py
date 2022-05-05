@@ -80,6 +80,21 @@ subfig.set_ylim(ymin=1-0.005)
 subfig.legend(fontsize=4.5)
 
 
+# subfig = fig.add_subplot(1, 2, 2)
+# subfig.set_title('Standard Deviation of I/O Cost', fontsize=8)
+# subfig.set_xlabel('BPK', fontsize=5)
+# subfig.set_ylabel('Standard Deviation', fontsize=5)
+# subfig.tick_params(axis='both', labelsize=5)
+# for i in range(n):
+#     x = [status['BPK'] for status in data[i]]
+#     y = [status['SD_IO'] for status in data[i]]
+#     subfig.plot(x, y, color = colors[i], linewidth = 0.8, linestyle='-', label=names[i])
+#     subfig.scatter(x, y, color = colors[i], s = 1, marker = 'o')
+# subfig.set_xlim(xmin=10)
+# subfig.set_ylim(ymin=0)
+# subfig.legend(fontsize=4.5)
+
+
 subfig = fig.add_subplot(2, 3, 4)
 subfig.set_title('Extra I/O Cost', fontsize=8)
 subfig.set_xlabel('BPK', fontsize=5)

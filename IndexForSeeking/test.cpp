@@ -4,6 +4,11 @@
 
 #define DATASET_PATH std::string("/home/gt/Dataset/SOSD/data/")
 #define CONFIG_PATH std::string("/home/gt/Dataset/SOSD/fpr_offset/")
+// #define ZIPFIAN_DIST
+#ifdef ZIPFIAN_DIST
+#define ZIPF_ALPHA 1.5
+#define ZIPF_GROUP 1000000
+#endif
 
 FILE* file;
 vector<uint64_t> key;
@@ -18,6 +23,10 @@ uint64_t randu(){
 void run(double totMem, string dataset_name){
     clock_t begin, end;
     size_t io = 0, io_hash = 0;
+#ifdef ZIPFIAN_DIST
+    vector<size_t> ios;
+    size_t last_io = 0;
+#endif
     function<pair<vector<size_t>, vector<size_t>> (vector<size_t>, vector<size_t>)> func;
     vector<double> bpn_bf, bpn_ck;
     size_t shift = 0, padding = 0;
@@ -87,9 +96,27 @@ void run(double totMem, string dataset_name){
             return;
         }
         delete res;
+#ifdef ZIPFIAN_DIST
+        if(i % ZIPF_GROUP == ZIPF_GROUP - 1){
+            ios.push_back(io - last_io);
+            last_io = io;
+        }
+#endif
     }
     end = clock();
 
+#ifdef ZIPFIAN_DIST
+    {
+        double avg = 0, sd = 0;
+        for(auto &x: ios)
+            avg += (double)x / ZIPF_GROUP;
+        avg /= ios.size();
+        for(auto &x: ios)
+            sd += ((double)x / ZIPF_GROUP - avg) * ((double)x / ZIPF_GROUP - avg);
+        sd = sqrt(sd / ios.size());
+        fprintf(file, "SD_IO %lf  ", sd);
+    }
+#endif
     fprintf(file, "QueryTP %lf  ", (double)query.size()*CLOCKS_PER_SEC/1e6/(end-begin));
     fprintf(file, "IO %lf  ", (double)io/query.size());
     fprintf(file, "IO_hash %lf  ", (double)io_hash/query.size());
@@ -126,10 +153,32 @@ void test(string filename_prefix, string dataset_name, size_t n, size_t run_n, d
         lcp.push_back(max(l1, l2));
         l1 = l2;
     }
+#ifdef ZIPFIAN_DIST
+    zipf::init(ZIPF_ALPHA, q);
+    map<int, pair<uint64_t, size_t>> zipf_map;
+    q = q / ZIPF_GROUP * ZIPF_GROUP;
+#endif
     for (size_t i=0; i<q; ++i) {
-        uint64_t from = key.back() == 0xffffffffffffffffULL ? randu() : randu() % (key.back() + 1ULL);
-        auto it = lower_bound(key.begin(), key.end(), from) - key.begin();
+        uint64_t from;
+        size_t it;
+#ifndef ZIPFIAN_DIST
+        from = key.back() == 0xffffffffffffffffULL ? randu() : randu() % (key.back() + 1ULL);
+        it = lower_bound(key.begin(), key.end(), from) - key.begin();
+#else
+        int idx = zipf::zipf();
+        if(!zipf_map.count(idx)){
+            from = key.back() == 0xffffffffffffffffULL ? randu() : randu() % (key.back() + 1ULL);
+            it = lower_bound(key.begin(), key.end(), from) - key.begin();
+            zipf_map[idx] = make_pair(from, it);
+        }
+        else
+            from = zipf_map[idx].first, it = zipf_map[idx].second;
+#endif
         query.push_back(make_pair(from, it));
+#ifdef ZIPFIAN_DIST
+        if(i % ZIPF_GROUP == ZIPF_GROUP - 1)
+            zipf_map.clear();
+#endif
     }
 
     fprintf(file, "Insert Throughput (M/s), Query Throughput (M/s), Expected I/O Cost, BPK\nEvaluation:\n");
